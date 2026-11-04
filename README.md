@@ -9,7 +9,7 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | Skill | Use it to | Status |
 |---|---|---|
 | [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Lay out, route or review PCBs with power stages: hot loops, gate drive, high-current copper, Kelvin sensing, thermal, isolation. It follows the parts you place. | ready |
-| [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around a microcontroller: supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | ready |
+| [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around any microcontroller (STM32, Tiva, NXP, AVR, ...): supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | ready |
 | [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Design op-amp, reference, ADC-drive and sensor circuits: protection, noise, stability, component choice | ready |
 | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | ready |
 
@@ -56,7 +56,7 @@ plugins/hardware-design/
 
 1. Create `plugins/hardware-design/skills/<skill-name>/SKILL.md`. Give it front matter with `name` (kebab-case, same as the folder) and a one-sentence `description` that says *when* to use it.
 2. **Every number needs a source.** Cite the app note or standard by document ID and title in the skill's References section. Don't add a rule you can't trace.
-3. Keep skills **generic**: no project-specific part numbers except as labelled examples.
+3. Keep skills **generic and vendor-neutral**. State the rule, say which datasheet parameter to look up, and give examples from several vendors (e.g. STM32, TI Tiva, NXP, Microchip). Never state one family's value as the rule. Project-specific part numbers appear only as labelled examples.
 4. Validate before pushing:
    ```bash
    claude plugin validate .

@@ -24,7 +24,7 @@ The deliverable is a **reproducible simulation suite** in the repo, next to the 
    - a DAC as an ideal source.
    
    List every simplification at the top of the netlist builder and in the report.
-3. **Use real models for the parts that set the answer:** the op amps in the loop, the pass/switch FETs, the sense amplifiers, the diodes that clamp. Use vendor SPICE models, run in the right compatibility mode (§4). Vendor models are usually **typical** values [NXP-IAN50012]. When a part has several models (typical vs weak FET), keep both and treat the choice as a corner.
+3. **Use real models for the parts that set the answer:** the op amps in the loop, the pass/switch FETs, the sense amplifiers, the diodes that clamp. Use vendor SPICE models, run in the right compatibility mode (§4). Vendor models are usually **typical** values [NEXPERIA-IAN50012]. When a part has several models (typical vs weak FET), keep both and treat the choice as a corner.
 4. **Every number in the report is reproducible** from one command, and is written to `results/` (CSV/JSON) with the plots in `plots/`. Raw simulator output goes to `work/` (gitignored).
 5. **Check simulations against hand calculations.** Before trusting a sweep, check one operating point and one transfer function by hand: divider ratios, DC gain, a pole frequency. A simulation that disagrees with arithmetic is wrong until explained.
 
@@ -131,7 +131,7 @@ Section numbers refer to the ngspice User's Manual (v45/v46). The current releas
   - **spicelib** is maintained: `RawRead` and `SimRunner` support ngspice. **PySpice** has had no release since 2021; **InSpice** is its maintained successor [PYPI].
 - **Power-MOSFET models.**
   - Infineon models come in levels 0–3; level 3 is electro-thermal, with Tj/Tcase pins, and Tcase must be connected. Infineon recommends Gear integration [IFX-AN].
-  - Nexperia electrothermal models give **typical** values, not process limits [NXP-IAN50012].
+  - Nexperia electrothermal models give **typical** values, not process limits [NEXPERIA-IAN50012].
   - For SOA questions, either way, run a weak/strong variant as a corner.
 
 ## 5. Pitfalls seen in practice
@@ -176,4 +176,4 @@ Section numbers refer to the ngspice User's Manual (v45/v46). The current releas
 - **Wiedmann**, F., *Loop gain simulation* (comparison of the methods; why breaking the loop with L/C is error-prone), sites.google.com/site/frankwiedmann/loopgain.
 - **[SLYT858]** TI, Analog Design Journal 3Q 2024: phase-margin targets (45° recommended), Monte Carlo of phase margin.
 - **[IFX-AN]** Infineon, *Introduction to Infineon's Simulation Models* (Power MOSFET model levels 0–3).
-- **[NXP-IAN50012]** Nexperia, *Precision Electrothermal models for Power MOSFETs*.
+- **[NEXPERIA-IAN50012]** Nexperia, *Precision Electrothermal models for Power MOSFETs*.

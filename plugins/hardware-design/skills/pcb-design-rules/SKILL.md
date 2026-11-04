@@ -15,7 +15,7 @@ Use this skill when you set up a board's rules for a fab, before routing, and wh
 
 DRC-clean is the floor. A board is done when `check` passes too.
 
-The script is `scripts/pcb_rules.py` (Python 3 standard library only). Fab data lives in `profiles/<fab>.json`, each with source URLs and the date it was checked.
+The script is `scripts/pcb_rules.py` (Python 3 standard library only). Fab data lives in `profiles/<fab>.json`, each with source URLs and the date it was checked. If `scripts/` is not next to this file (e.g., the skill was installed as a single SKILL.md), get both folders from github.com/gabrielfrasantos/claude-hardware-skills, path `plugins/hardware-design/skills/pcb-design-rules/`.
 
 ## 1. Workflow with the user
 

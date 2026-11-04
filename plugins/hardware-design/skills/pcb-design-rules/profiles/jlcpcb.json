@@ -1,0 +1,55 @@
+{
+  "name": "jlcpcb",
+  "title": "JLCPCB rigid FR-4, standard process",
+  "sources": [
+    "https://jlcpcb.com/capabilities/pcb-capabilities",
+    "https://jlcpcb.com/impedance"
+  ],
+  "fetched": "2026-11-04",
+  "notes": [
+    "fab_min = the published capability (absolute minimum). design = what pcb_rules recommends for net classes: inside the cheapest tier, with margin.",
+    "Via holes of 0.10/0.15 mm cost extra; 0.20/0.25 mm cost extra when the via diameter is below 0.45 mm. A 0.30 mm hole has no surcharge.",
+    "Inner copper defaults to 0.5 oz. Specify 1 oz for high-current inner layers (changes the stackup).",
+    "Plated-through-hole (pad) to track 0.28 mm minimum, 0.35 mm recommended. SMD pad to pad (different nets) 0.15 mm.",
+    "Re-check the capability page before ordering: the numbers change (e.g. LDI mask 1:1 since June 2025)."
+  ],
+  "layers": {
+    "2": {
+      "fab_min": {
+        "track": 0.10, "clearance": 0.10,
+        "via_drill": 0.15, "via_diameter": 0.25, "via_annular": 0.05,
+        "pth_annular": 0.18, "min_drill": 0.15, "npth_min_drill": 0.50,
+        "hole_to_hole": 0.20, "pad_hole_to_hole": 0.45,
+        "hole_clearance": 0.20, "pth_to_track": 0.28,
+        "smd_pad_to_pad": 0.15, "edge_clearance": 0.20,
+        "mask_bridge": 0.10, "silk_line": 0.15, "silk_text_height": 1.0, "silk_to_pad": 0.15
+      },
+      "design": {
+        "track": 0.15, "clearance": 0.15,
+        "via_drill": 0.30, "via_diameter": 0.60,
+        "edge_clearance": 0.50, "pth_to_track": 0.35
+      }
+    },
+    "4+": {
+      "fab_min": {
+        "track": 0.09, "clearance": 0.09,
+        "via_drill": 0.15, "via_diameter": 0.25, "via_annular": 0.05,
+        "pth_annular": 0.15, "min_drill": 0.15, "npth_min_drill": 0.50,
+        "hole_to_hole": 0.20, "pad_hole_to_hole": 0.45,
+        "hole_clearance": 0.20, "pth_to_track": 0.28,
+        "smd_pad_to_pad": 0.15, "edge_clearance": 0.20,
+        "mask_bridge": 0.10, "silk_line": 0.15, "silk_text_height": 1.0, "silk_to_pad": 0.15
+      },
+      "design": {
+        "track": 0.15, "clearance": 0.15,
+        "via_drill": 0.30, "via_diameter": 0.60,
+        "edge_clearance": 0.50, "pth_to_track": 0.35
+      }
+    }
+  },
+  "stackups": {
+    "JLC04161H-7628": {"layers": 4, "thickness": 1.6, "l1_l2_mm": 0.2104, "prepreg": "7628", "er_prepreg": 4.4, "core_mm": 1.065, "er_core": 4.6, "outer_cu_mm": 0.035, "inner_cu_mm": 0.0152},
+    "JLC04161H-3313": {"layers": 4, "thickness": 1.6, "l1_l2_mm": 0.0994, "prepreg": "3313", "er_prepreg": 4.1, "core_mm": 1.265, "er_core": 4.6, "outer_cu_mm": 0.035, "inner_cu_mm": 0.0152},
+    "JLC04161H-2116": {"layers": 4, "thickness": 1.6, "l1_l2_mm": 0.1164, "prepreg": "2116", "er_prepreg": 4.16, "core_mm": 1.265, "er_core": 4.6, "outer_cu_mm": 0.035, "inner_cu_mm": 0.0152}
+  }
+}

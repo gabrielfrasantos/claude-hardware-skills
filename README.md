@@ -14,6 +14,7 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | ready |
 | [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Route memories (QSPI/OctoSPI/HyperBus, SDRAM, DDR/LPDDR, SD/eMMC), displays (RGB, MIPI DSI/CSI, LVDS), cameras and clocks | ready |
 | [`interface-layout`](plugins/hardware-design/skills/interface-layout/SKILL.md) | Lay out USB, USB-C, CAN/CAN FD, RS-485, Ethernet, isolated buses, connector ESD and shielding | ready |
+| [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Set a board's KiCad rules from the fab's capabilities (JLCPCB, Seeed, or both) and gate the layout on DRC plus geometry quality (45° discipline, jogs, acute corners, vias and segments per connection). Includes `pcb_rules.py` for local use and CI | ready |
 | [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Design and lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, supplies, crystals, coexistence, certification, pitfalls | ready |
 
 ## Install
@@ -52,7 +53,9 @@ Each skill is a self-contained folder with a `SKILL.md`. Zip a skill folder (e.g
 plugins/hardware-design/
 ├── .claude-plugin/plugin.json            # plugin "hardware-design"
 └── skills/
-    └── <skill-name>/SKILL.md             # one folder per skill
+    └── <skill-name>/
+        ├── SKILL.md                      # one folder per skill
+        └── scripts/, profiles/           # optional helpers the skill calls
 ```
 
 ## Adding or changing a skill

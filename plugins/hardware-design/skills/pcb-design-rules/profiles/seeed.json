@@ -1,0 +1,50 @@
+{
+  "name": "seeed",
+  "title": "Seeed Studio Fusion PCB, standard FR-4",
+  "sources": [
+    "https://support.seeed.cc/portal/en/kb/articles/fusion-pcb-specification"
+  ],
+  "fetched": "2026-11-04",
+  "notes": [
+    "fab_min = the published standard capability. design = what pcb_rules recommends for net classes.",
+    "4/4 mil (0.1016 mm) is the outer-layer minimum; inner layers on 4-layer boards need 0.15 mm.",
+    "Default solder-mask dam is 0.32 mm (green) / 0.35 mm (other colours); 0.10/0.13 mm is an option. The profile uses the option value; check the order form.",
+    "Inner copper is 0.5 oz on the standard process. Trace/space grows with copper weight: 2 oz needs 10/10 mil, 3 oz 15/15 mil.",
+    "Re-check the specification page before ordering."
+  ],
+  "layers": {
+    "2": {
+      "fab_min": {
+        "track": 0.1016, "clearance": 0.1016,
+        "via_drill": 0.20, "via_diameter": 0.40, "via_annular": 0.10,
+        "pth_annular": 0.152, "min_drill": 0.20, "npth_min_drill": 0.20,
+        "hole_to_hole": 0.30, "pad_hole_to_hole": 0.45,
+        "hole_clearance": 0.3048, "pth_to_track": 0.3048,
+        "smd_pad_to_pad": 0.1016, "edge_clearance": 0.30,
+        "mask_bridge": 0.10, "silk_line": 0.1016, "silk_text_height": 0.5842, "silk_to_pad": 0.1524
+      },
+      "design": {
+        "track": 0.15, "clearance": 0.15,
+        "via_drill": 0.30, "via_diameter": 0.60,
+        "edge_clearance": 0.50, "pth_to_track": 0.35
+      }
+    },
+    "4+": {
+      "fab_min": {
+        "track": 0.1016, "clearance": 0.1016, "inner_track": 0.15,
+        "via_drill": 0.20, "via_diameter": 0.40, "via_annular": 0.10,
+        "pth_annular": 0.152, "min_drill": 0.20, "npth_min_drill": 0.20,
+        "hole_to_hole": 0.30, "pad_hole_to_hole": 0.45,
+        "hole_clearance": 0.3048, "inner_hole_clearance": 0.20, "pth_to_track": 0.3048,
+        "smd_pad_to_pad": 0.1016, "edge_clearance": 0.30,
+        "mask_bridge": 0.10, "silk_line": 0.1016, "silk_text_height": 0.5842, "silk_to_pad": 0.1524
+      },
+      "design": {
+        "track": 0.15, "clearance": 0.15,
+        "via_drill": 0.30, "via_diameter": 0.60,
+        "edge_clearance": 0.50, "pth_to_track": 0.35
+      }
+    }
+  },
+  "stackups": {}
+}

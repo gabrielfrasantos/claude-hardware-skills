@@ -14,7 +14,7 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | ready |
 | [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Route memories (QSPI/OctoSPI/HyperBus, SDRAM, DDR/LPDDR, SD/eMMC), displays (RGB, MIPI DSI/CSI, LVDS), cameras and clocks | ready |
 | [`interface-layout`](plugins/hardware-design/skills/interface-layout/SKILL.md) | Lay out USB, USB-C, CAN/CAN FD, RS-485, Ethernet, isolated buses, connector ESD and shielding | ready |
-| `rf-layout` | Lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi): 50 Ω lines, matching, antennas, crystals, coexistence, pitfalls | in progress |
+| [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Design and lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, supplies, crystals, coexistence, certification, pitfalls | ready |
 
 ## Install
 

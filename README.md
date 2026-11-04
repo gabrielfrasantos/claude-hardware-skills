@@ -9,7 +9,7 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | Skill | Use it to | Status |
 |---|---|---|
 | [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Lay out, route or review PCBs with power stages: hot loops, gate drive, high-current copper, Kelvin sensing, thermal, isolation. It follows the parts you place. | ready |
-| `mcu-circuit-design` | Design the circuitry around a microcontroller: supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | in progress |
+| [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around a microcontroller: supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | ready |
 | [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Design op-amp, reference, ADC-drive and sensor circuits: protection, noise, stability, component choice | ready |
 | `circuit-simulation` | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | in progress |
 

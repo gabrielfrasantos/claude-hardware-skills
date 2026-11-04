@@ -3,22 +3,28 @@
 
     pcb_rules.py profiles
     pcb_rules.py apply  <board.kicad_pcb | project.kicad_pro> --fab jlcpcb[,seeed] [--layers N] [--netclasses]
-    pcb_rules.py check  <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--report r.md] [--json r.json]
+    pcb_rules.py check  <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor]
+                        [--gate NAME=LIMIT] [--report r.md] [--json r.json]
 
-apply   writes the fab's minimums into the project's Board Setup constraints, a managed block of
-        custom rules into <project>.kicad_dru (fab rules KiCad has no Board Setup field for, plus the
-        acute-angle quality rule), optionally the Default net class (design values), and the solder-mask
-        minimum web into the board's setup. It then proves the rules file loads (KiCad silently ignores
-        a rules file it cannot parse) by running DRC once with a canary rule.
+apply   writes the fab's minimums into the project's Board Setup constraints, a managed block of custom
+        rules into <project>.kicad_dru (fab rules Board Setup has no field for, plus the 45-degree corner
+        rule), forces the copper-safety checks to error severity, optionally raises the Default net class
+        to the design values, and sets the solder-mask minimum web in the board's setup. It then proves
+        KiCad loads the rules file (KiCad silently ignores a rules file it cannot parse).
 
-check   runs KiCad's DRC (zones refilled, schematic parity) and the geometry checks DRC cannot do:
-        off-grid track angles, tiny jogs, segments and vias per connection, detours, layer direction.
+check   shorts and clearance: KiCad DRC on a temporary copy of the project with every copper-safety check
+        forced to error, DRC exclusions of those checks removed, and all errors per track reported; then a
+        fab-floor pass that flags copper and holes below the fab's absolute minimum whatever the project's
+        rules say. Plus the geometry checks DRC cannot do: off-grid angles, 90-degree corners, junctions,
+        jogs, segments and vias per connection, detours, layer direction.
         Exit status 1 when a hard gate fails, so it can gate CI.
 
-KiCad 8+ kicad-cli is needed for DRC (set --kicad-cli or $KICAD_CLI). The geometry checks parse the
-.kicad_pcb directly (KiCad 7-10 formats) and need no KiCad installation. Standard library only.
+KiCad 8+ kicad-cli is needed for DRC (--kicad-cli or $KICAD_CLI). With --no-drc the script parses the
+.kicad_pcb itself (KiCad 7-10 formats): geometry gates plus a copper short/clearance check between tracks,
+vias and pads (zones and custom-shaped pads need KiCad). Python 3 standard library only.
 """
 import argparse
+import fnmatch
 import json
 import math
 import os
@@ -34,10 +40,23 @@ PROFILE_DIR = os.path.join(HERE, "..", "profiles")
 BEGIN = "# BEGIN pcb_rules managed block"
 END = "# END pcb_rules managed block"
 
+# DRC checks that protect against shorts and unbuildable copper. check forces them to error severity.
+COPPER_SAFETY = ["shorting_items", "tracks_crossing", "clearance", "hole_clearance", "hole_to_hole",
+                 "copper_edge_clearance", "zones_intersect", "solder_mask_bridge", "creepage",
+                 "annular_width", "track_width", "drill_out_of_range"]
+SHORT_TYPES = {"shorting_items", "tracks_crossing"}
+MIN_CORNER = 135   # degrees between connected segments: 180 = straight, 135 = 45-degree bend, 90 = right angle
+
 # Hard gates fail the check; soft gates are reported as warnings.
 GATES = {
+    "shorts": ("hard", 0),                    # copper of different nets touching
+    "clearance_violations": ("hard", 0),      # other copper-safety violations (gaps, holes, edge, mask)
+    "below_fab_minimum": ("hard", 0),         # anything under the fab's absolute minimum, whatever the rules say
+    "dangling": ("hard", 0),                  # tracks/vias connected at one end only (KiCad re-nets floating copper)
     "any_angle_segments": ("hard", 0),        # segments not on a 0/45/90/135 degree direction
-    "acute_corners": ("hard", 0),             # interior angle < 90 degrees between connected segments
+    "acute_corners": ("hard", 0),             # tracks meeting at < 90 degrees
+    "right_angle_corners": ("hard", 0),       # two segments meeting at < 135 degrees (90-degree corners)
+    "track_junctions": ("hard", 0),           # three or more tracks meeting off a pad (tees, Y-branches, branches at vias)
     "jogs": ("hard", 0),                      # zero-length segments and short offsets between parallel runs
     "short_segment_pct": ("soft", 10.0),      # % of interior segments shorter than SHORT_MM
     "segments_per_connection_p90": ("soft", 8.0),
@@ -45,6 +64,7 @@ GATES = {
     "detour_p90": ("soft", 1.6),
 }
 ANGLE_TOL = 0.5     # degrees
+DRC_EPSILON = 0.0005  # mm; gaps this close to the limit pass, as in KiCad's DRC (matched on e-psu)
 JOG_MM = 0.25
 SHORT_MM = 0.5
 
@@ -116,6 +136,90 @@ def is_locked(node):
     return bool(lk and len(lk) > 1 and lk[1] == "yes")
 
 
+# ----------------------------------------------------------------------------------------------- shapes
+# A copper shape is a "core" (a point, a segment or a convex polygon) inflated by a radius r. Tracks are
+# segments + w/2, vias points + d/2, round/oval/roundrect pads exact, other pads their bounding rectangle.
+def _bbox(pts, r):
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    return (min(xs) - r, min(ys) - r, max(xs) + r, max(ys) + r)
+
+
+def shape_point(x, y, r):
+    return dict(segs=[(x, y, x, y)], poly=None, r=r, bbox=(x - r, y - r, x + r, y + r))
+
+
+def shape_seg(x1, y1, x2, y2, r):
+    return dict(segs=[(x1, y1, x2, y2)], poly=None, r=r, bbox=_bbox([(x1, y1), (x2, y2)], r))
+
+
+def shape_poly(pts, r):
+    segs = [(pts[i][0], pts[i][1], pts[(i + 1) % len(pts)][0], pts[(i + 1) % len(pts)][1]) for i in range(len(pts))]
+    return dict(segs=segs, poly=pts, r=r, bbox=_bbox(pts, r))
+
+
+def _pt_seg(px, py, x1, y1, x2, y2):
+    dx, dy = x2 - x1, y2 - y1
+    L2 = dx * dx + dy * dy
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((px - x1) * dx + (py - y1) * dy) / L2))
+    return math.hypot(px - x1 - t * dx, py - y1 - t * dy)
+
+
+def _orient(ax, ay, bx, by, cx, cy):
+    v = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+    return 0 if abs(v) < 1e-12 else (1 if v > 0 else -1)
+
+
+def _seg_seg(a, b):
+    x1, y1, x2, y2 = a
+    x3, y3, x4, y4 = b
+    o1, o2 = _orient(x1, y1, x2, y2, x3, y3), _orient(x1, y1, x2, y2, x4, y4)
+    o3, o4 = _orient(x3, y3, x4, y4, x1, y1), _orient(x3, y3, x4, y4, x2, y2)
+    if o1 != o2 and o3 != o4 and 0 not in (o1, o2, o3, o4):
+        return 0.0
+    return min(_pt_seg(x1, y1, *b), _pt_seg(x2, y2, *b), _pt_seg(x3, y3, *a), _pt_seg(x4, y4, *a))
+
+
+def _in_poly(x, y, poly):
+    inside = False
+    for i in range(len(poly)):
+        (xa, ya), (xb, yb) = poly[i], poly[(i + 1) % len(poly)]
+        if (ya > y) != (yb > y) and x < xa + (y - ya) * (xb - xa) / (yb - ya):
+            inside = not inside
+    return inside
+
+
+def shape_gap(A, B):
+    """Copper-to-copper gap in mm; <= 0 means the shapes touch or overlap."""
+    if A["poly"] and any(_in_poly(s[0], s[1], A["poly"]) for s in B["segs"]):
+        d = 0.0
+    elif B["poly"] and any(_in_poly(s[0], s[1], B["poly"]) for s in A["segs"]):
+        d = 0.0
+    else:
+        d = min(_seg_seg(s, t) for s in A["segs"] for t in B["segs"])
+    return d - A["r"] - B["r"]
+
+
+def pad_shape(x, y, rot, w, h, kind, rratio):
+    c, s = math.cos(math.radians(rot)), math.sin(math.radians(rot))
+
+    def tf(dx, dy):   # KiCad rotation: counter-clockwise on a y-down board
+        return (x + dx * c + dy * s, y - dx * s + dy * c)
+
+    if kind == "circle":
+        return shape_point(x, y, w / 2)
+    if kind == "oval":
+        if abs(w - h) < 1e-9:
+            return shape_point(x, y, w / 2)
+        if w > h:
+            (ax, ay), (bx, by) = tf(-(w - h) / 2, 0), tf((w - h) / 2, 0)
+            return shape_seg(ax, ay, bx, by, h / 2)
+        (ax, ay), (bx, by) = tf(0, -(h - w) / 2), tf(0, (h - w) / 2)
+        return shape_seg(ax, ay, bx, by, w / 2)
+    r = rratio * min(w, h) if kind == "roundrect" else 0.0
+    iw, ih = w / 2 - r, h / 2 - r
+    return shape_poly([tf(-iw, -ih), tf(iw, -ih), tf(iw, ih), tf(-iw, ih)], r)
+
+
 # ----------------------------------------------------------------------------------------------- board
 class Board:
     def __init__(self, path=None, text=None):
@@ -145,12 +249,13 @@ class Board:
             elif kind == "arc":
                 s, e, m = child(node, "start"), child(node, "end"), child(node, "mid")
                 self.arcs.append(dict(x1=float(s[1]), y1=float(s[2]), x2=float(e[1]), y2=float(e[2]),
-                                      xm=float(m[1]), ym=float(m[2]), layer=child(node, "layer")[1],
-                                      net=self._net(node)))
+                                      xm=float(m[1]), ym=float(m[2]), w=float(child(node, "width")[1]),
+                                      layer=child(node, "layer")[1], net=self._net(node)))
             elif kind == "via":
-                at = child(node, "at")
+                at, lays = child(node, "at"), child(node, "layers")
                 self.vias.append(dict(x=float(at[1]), y=float(at[2]), net=self._net(node),
-                                      d=float(child(node, "size")[1])))
+                                      d=float(child(node, "size")[1]),
+                                      layers=self._span(lays[1:] if lays else ["F.Cu", "B.Cu"])))
             elif kind == "zone":
                 nn = child(node, "net_name")
                 self.zone_nets.add(nn[1] if nn else self._net(node))
@@ -162,9 +267,27 @@ class Board:
         if not n or len(n) < 2:
             return ""
         if len(n) >= 3:                       # (net 12 "name") in footprints/pads (KiCad 7)
-            return n[2]
-        v = n[1]
-        return self.net_names.get(v, v)       # (net 12) -> table, (net "name") KiCad 10
+            name = n[2]
+        else:
+            name = self.net_names.get(n[1], n[1])   # (net 12) -> table, (net "name") KiCad 10
+        return name.replace("{slash}", "/")
+
+    def _span(self, ends):
+        idx = [self.copper_layers.index(l) for l in ends if l in self.copper_layers]
+        if len(idx) < 2:
+            return set(self.copper_layers)
+        return set(self.copper_layers[min(idx):max(idx) + 1])
+
+    def _pad_layers(self, names):
+        out = set()
+        for n in names:
+            if n == "*.Cu":
+                out |= set(self.copper_layers)
+            elif n == "F&B.Cu":
+                out |= {"F.Cu", "B.Cu"}
+            elif n in self.copper_layers:
+                out.add(n)
+        return out
 
     def _footprint(self, fp):
         at = child(fp, "at")
@@ -181,12 +304,17 @@ class Board:
         for pad in children(fp, "pad"):
             pat = child(pad, "at")
             dx, dy = float(pat[1]), float(pat[2])
+            prot = float(pat[3]) if len(pat) > 3 else 0.0     # pad angle in the file is absolute
             size = child(pad, "size")
-            # KiCad stores pad offsets in the footprint frame; rotation is counter-clockwise on a y-down board
+            w, h = (float(size[1]), float(size[2])) if size else (1.0, 1.0)
+            rr = child(pad, "roundrect_rratio")
+            lays = child(pad, "layers")
+            # pad offsets are in the footprint frame; rotation is counter-clockwise on a y-down board
             x = fx + dx * c + dy * s
             y = fy - dx * s + dy * c
-            self.pads.append(dict(x=x, y=y, r=max(float(size[1]), float(size[2])) / 2 if size else 0.5,
-                                  net=self._net(pad), ref=ref, num=pad[1], kind=pad[2]))
+            self.pads.append(dict(x=x, y=y, r=max(w, h) / 2, w=w, h=h, rot=prot, shape=pad[3] if len(pad) > 3 else "rect",
+                                  rratio=float(rr[1]) if rr else 0.25, net=self._net(pad), ref=ref, num=pad[1],
+                                  kind=pad[2], layers=self._pad_layers(lays[1:] if lays else [])))
 
 
 # ----------------------------------------------------------------------------------------------- geometry
@@ -207,11 +335,10 @@ def _mst_manhattan(points):
     pts = list({(round(x, 3), round(y, 3)) for x, y in points})
     if len(pts) < 2:
         return 0.0
-    inside, dist, total = {0}, {i: abs(pts[i][0] - pts[0][0]) + abs(pts[i][1] - pts[0][1]) for i in range(1, len(pts))}, 0.0
+    dist, total = {i: abs(pts[i][0] - pts[0][0]) + abs(pts[i][1] - pts[0][1]) for i in range(1, len(pts))}, 0.0
     while dist:
         j = min(dist, key=dist.get)
         total += dist.pop(j)
-        inside.add(j)
         for i in dist:
             d = abs(pts[i][0] - pts[j][0]) + abs(pts[i][1] - pts[j][1])
             if d < dist[i]:
@@ -226,19 +353,96 @@ def _percentile(vals, q):
     return v[min(len(v) - 1, int(round(q / 100.0 * (len(v) - 1))))]
 
 
+def _arc_chords(a, n=8):
+    """Split an arc track into n straight chords (enough for clearance checks)."""
+    (x1, y1), (xm, ym), (x2, y2) = (a["x1"], a["y1"]), (a["xm"], a["ym"]), (a["x2"], a["y2"])
+    d = 2 * (x1 * (ym - y2) + xm * (y2 - y1) + x2 * (y1 - ym))
+    if abs(d) < 1e-12:
+        return [(x1, y1, x2, y2)]
+    ux = ((x1 ** 2 + y1 ** 2) * (ym - y2) + (xm ** 2 + ym ** 2) * (y2 - y1) + (x2 ** 2 + y2 ** 2) * (y1 - ym)) / d
+    uy = ((x1 ** 2 + y1 ** 2) * (x2 - xm) + (xm ** 2 + ym ** 2) * (x1 - x2) + (x2 ** 2 + y2 ** 2) * (xm - x1)) / d
+    R = math.hypot(x1 - ux, y1 - uy)
+    t1, tm, t2 = (math.atan2(y - uy, x - ux) for x, y in ((x1, y1), (xm, ym), (x2, y2)))
+    sweep = (t2 - t1) % (2 * math.pi)
+    if (tm - t1) % (2 * math.pi) > sweep:      # mid point not on the counter-clockwise path: go the other way
+        sweep -= 2 * math.pi
+    pts = [(ux + R * math.cos(t1 + sweep * i / n), uy + R * math.sin(t1 + sweep * i / n)) for i in range(n + 1)]
+    return [(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]) for i in range(n)]
+
+
+def copper_check(board, limit):
+    """Shorts and gaps below `limit` between tracks, arcs, vias and pads of different nets (no zones)."""
+    items = []
+    for s in board.segments:
+        items.append((s["net"], {s["layer"]}, shape_seg(s["x1"], s["y1"], s["x2"], s["y2"], s["w"] / 2),
+                      f"track {s['net']} {s['layer']}"))
+    for a in board.arcs:
+        for c in _arc_chords(a):
+            items.append((a["net"], {a["layer"]}, shape_seg(*c, a["w"] / 2), f"arc {a['net']} {a['layer']}"))
+    for v in board.vias:
+        items.append((v["net"], v["layers"], shape_point(v["x"], v["y"], v["d"] / 2), f"via {v['net']}"))
+    for p in board.pads:
+        if p["kind"] == "np_thru_hole" or not p["layers"]:
+            continue
+        items.append((p["net"], p["layers"], pad_shape(p["x"], p["y"], p["rot"], p["w"], p["h"], p["shape"], p["rratio"]),
+                      f"pad {p['ref']}.{p['num']} {p['net']}"))
+    nets = [n if n else f"<no net {i}>" for i, (n, *_rest) in enumerate(items)]
+    cell = 1.0
+    grid = defaultdict(list)
+    for i, (_, _, sh, _) in enumerate(items):
+        x0, y0, x1, y1 = sh["bbox"]
+        for gx in range(int(math.floor((x0 - limit) / cell)), int(math.floor((x1 + limit) / cell)) + 1):
+            for gy in range(int(math.floor((y0 - limit) / cell)), int(math.floor((y1 + limit) / cell)) + 1):
+                grid[(gx, gy)].append(i)
+    shorts, gaps, seen = [], [], set()
+    for ids in grid.values():
+        for ai in range(len(ids)):
+            i = ids[ai]
+            for j in ids[ai + 1:]:
+                if nets[i] == nets[j] or (i, j) in seen:
+                    continue
+                seen.add((i, j))
+                (_, li, A, di), (_, lj, B, dj) = items[i], items[j]
+                common = li & lj
+                if not common:
+                    continue
+                ax0, ay0, ax1, ay1 = A["bbox"]
+                bx0, by0, bx1, by1 = B["bbox"]
+                if ax0 - limit > bx1 or bx0 - limit > ax1 or ay0 - limit > by1 or by0 - limit > ay1:
+                    continue
+                g = shape_gap(A, B)
+                if g < limit - DRC_EPSILON:
+                    row = dict(a=di, b=dj, net_a=items[i][0], net_b=items[j][0], layer=sorted(common)[0],
+                               gap=round(g, 4), near=(round(A["segs"][0][0], 3), round(A["segs"][0][1], 3)))
+                    (shorts if g <= 1e-6 else gaps).append(row)
+    return shorts, gaps
+
+
 def geometry_report(board):
     segs = [s for s in board.segments if _seg_len(s) > 1e-6]
-    near_pad = defaultdict(list)                       # coarse 1 mm grid of pads and vias
+    pad_grid, via_grid = defaultdict(list), defaultdict(list)
     for p in board.pads:
-        near_pad[(int(p["x"]), int(p["y"]))].append((p["x"], p["y"], p["r"] + 0.05))
+        if p["layers"]:
+            sh = pad_shape(p["x"], p["y"], p["rot"], p["w"], p["h"], p["shape"], p["rratio"])
+            for gx in range(int(math.floor(sh["bbox"][0])), int(math.floor(sh["bbox"][2])) + 1):
+                for gy in range(int(math.floor(sh["bbox"][1])), int(math.floor(sh["bbox"][3])) + 1):
+                    pad_grid[(gx, gy)].append((sh, p["layers"]))
     for v in board.vias:
-        near_pad[(int(v["x"]), int(v["y"]))].append((v["x"], v["y"], v["d"] / 2 + 0.05))
+        via_grid[(int(math.floor(v["x"])), int(math.floor(v["y"])))].append((v["x"], v["y"], v["d"] / 2))
 
-    def on_pad_or_via(x, y):
-        for gx in (int(x) - 1, int(x), int(x) + 1):
-            for gy in (int(y) - 1, int(y), int(y) + 1):
-                for px, py, r in near_pad.get((gx, gy), ()):
-                    if math.hypot(px - x, py - y) <= r:
+    def on_pad(x, y, layer=None):
+        pt = shape_point(x, y, 0.0)
+        for sh, lays in pad_grid.get((int(math.floor(x)), int(math.floor(y))), ()):
+            if (layer is None or layer in lays) and shape_gap(sh, pt) <= 0.001:
+                return True
+        return False
+
+    def on_via(x, y):
+        gx, gy = int(math.floor(x)), int(math.floor(y))
+        for ix in (gx - 1, gx, gx + 1):
+            for iy in (gy - 1, gy, gy + 1):
+                for vx, vy, r in via_grid.get((ix, iy), ()):
+                    if math.hypot(vx - x, vy - y) <= r + 0.001:
                         return True
         return False
 
@@ -262,7 +466,7 @@ def geometry_report(board):
         L = _seg_len(s)
         if L >= 0.05 and _octilinear_dev(s) > ANGLE_TOL:
             any_angle.append(s)
-        terminal = on_pad_or_via(s["x1"], s["y1"]) or on_pad_or_via(s["x2"], s["y2"])
+        terminal = any(on_pad(x, y, s["layer"]) or on_via(x, y) for x, y in ((s["x1"], s["y1"]), (s["x2"], s["y2"])))
         if terminal:
             continue
         interior += 1
@@ -275,9 +479,13 @@ def geometry_report(board):
                 cross = a[0] * b[1] - a[1] * b[0]
                 if abs(cross) <= 1e-3 * math.hypot(*a) * math.hypot(*b):
                     jogs.append(s)
-    acute = []                                         # every pair of track ends meeting off a pad or via
+
+    # Corners and junctions, classified like KiCad's track_angle check: tracks meeting at a pad are exempt,
+    # tracks meeting at a via are not.
+    acute, right, junctions = [], [], []
     for (layer, net, k), ends in nodes.items():
-        if len(ends) < 2 or on_pad_or_via(k[0] / 1000, k[1] / 1000):
+        x, y = k[0] / 1000, k[1] / 1000
+        if len(ends) < 2 or on_pad(x, y, layer):
             continue
         vecs = []
         for s, end in ends:
@@ -290,15 +498,20 @@ def geometry_report(board):
             for j in range(i + 1, len(vecs)):
                 dot = vecs[i][0] * vecs[j][0] + vecs[i][1] * vecs[j][1]
                 worst = min(worst, math.degrees(math.acos(max(-1.0, min(1.0, dot)))))
+        entry = (layer, net, x, y, round(worst, 1))
         if worst < 90.0 - ANGLE_TOL:
-            acute.append((layer, net, k[0] / 1000, k[1] / 1000, worst))
+            acute.append(entry)
+        elif len(vecs) >= 3 and worst < MIN_CORNER - ANGLE_TOL:
+            junctions.append(entry)
+        elif worst < MIN_CORNER - ANGLE_TOL:
+            right.append(entry)
 
     per_net = defaultdict(lambda: dict(segments=0, vias=0, length=0.0, pads=[]))
     for s in segs:
         per_net[s["net"]]["segments"] += 1
         per_net[s["net"]]["length"] += _seg_len(s)
     for a in board.arcs:
-        per_net[a["net"]]["length"] += math.hypot(a["xm"] - a["x1"], a["ym"] - a["y1"]) + math.hypot(a["x2"] - a["xm"], a["y2"] - a["ym"])
+        per_net[a["net"]]["length"] += sum(math.hypot(c[2] - c[0], c[3] - c[1]) for c in _arc_chords(a))
     for v in board.vias:
         per_net[v["net"]]["vias"] += 1
     for p in board.pads:
@@ -334,7 +547,8 @@ def geometry_report(board):
 
     metrics = {
         "segments": len(segs), "vias": len(board.vias),
-        "any_angle_segments": len(any_angle), "acute_corners": len(acute), "jogs": len(jogs),
+        "any_angle_segments": len(any_angle), "acute_corners": len(acute), "right_angle_corners": len(right),
+        "track_junctions": len(junctions), "jogs": len(jogs),
         "short_segment_pct": (100.0 * short / interior) if interior else 0.0,
         "segments_per_connection_p90": _percentile([r["seg_per_conn"] for r in rows], 90),
         "vias_per_connection_max": max([r["via_per_conn"] for r in rows], default=0.0),
@@ -342,7 +556,9 @@ def geometry_report(board):
     }
     examples = {
         "any_angle_segments": [(s["layer"], s["net"], round(s["x1"], 3), round(s["y1"], 3), round(_octilinear_dev(s), 1)) for s in any_angle[:15]],
-        "acute_corners": [(l, n, x, y, round(a, 1)) for l, n, x, y, a in acute[:15]],
+        "acute_corners": acute[:15],
+        "right_angle_corners": right[:15],
+        "track_junctions": junctions[:15],
         "jogs": [(s["layer"], s["net"], round(s["x1"], 3), round(s["y1"], 3), round(_seg_len(s), 3)) for s in jogs[:15]],
     }
     worst = {
@@ -363,7 +579,9 @@ def find_cli(arg):
 
 def run_drc(cli, board, refill=True, parity=True):
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
-    args = [cli, "pcb", "drc", "--format", "json", "--severity-all", "-o", out]
+    # --all-track-errors: by default KiCad reports only the first error on each track, so a short can hide
+    # behind any other violation on the same track.
+    args = [cli, "pcb", "drc", "--format", "json", "--severity-all", "--all-track-errors", "-o", out]
     if refill:
         args.append("--refill-zones")
     sch = os.path.splitext(board)[0] + ".kicad_sch"
@@ -378,15 +596,68 @@ def run_drc(cli, board, refill=True, parity=True):
     return data
 
 
-def summarize_drc(data):
-    by = Counter()
-    for v in data.get("violations", []):
-        by[(v.get("severity", "error"), v.get("type", "?"))] += 1
-    parity = Counter(v.get("severity", "error") for v in data.get("schematic_parity", []))
-    return dict(by_type=by, unconnected=len(data.get("unconnected_items", [])),
-                parity_errors=parity.get("error", 0), parity_warnings=parity.get("warning", 0),
-                errors=sum(n for (sev, _), n in by.items() if sev == "error"),
-                version=data.get("kicad_version", "?"))
+def project_copy(board):
+    """Copy the board, project, rules and schematic files to a temp dir; returns (tmpdir, board copy)."""
+    src = os.path.dirname(os.path.abspath(board))
+    tmp = tempfile.mkdtemp(prefix="pcb_rules_")
+    keep = ("*.kicad_pcb", "*.kicad_pro", "*.kicad_dru", "*.kicad_sch", "*.kicad_prl", "sym-lib-table", "fp-lib-table")
+    for root, dirs, files in os.walk(src):
+        dirs[:] = [d for d in dirs if not d.endswith("-backups") and not d.startswith(".") and not d.endswith(".pretty")]
+        for f in files:
+            if any(fnmatch.fnmatch(f, k) for k in keep):
+                rel = os.path.relpath(os.path.join(root, f), src)
+                os.makedirs(os.path.join(tmp, os.path.dirname(rel)), exist_ok=True)
+                shutil.copy2(os.path.join(root, f), os.path.join(tmp, rel))
+    return tmp, os.path.join(tmp, os.path.basename(board))
+
+
+def force_copper_safety(pro_path):
+    """In a project copy: copper-safety checks to error, their DRC exclusions removed. Returns exclusions removed."""
+    if not os.path.exists(pro_path):
+        return 0
+    with open(pro_path) as f:
+        pj = json.load(f)
+    ds = pj.setdefault("board", {}).setdefault("design_settings", {})
+    sev = ds.setdefault("rule_severities", {})
+    for k in COPPER_SAFETY:
+        sev[k] = "error"
+    sev["items_not_allowed"] = "error"        # used by the fab-floor canary
+    excl = ds.get("drc_exclusions", []) or []
+    kept = [e for e in excl if (e if isinstance(e, str) else (e[0] if e else "")).split("|")[0] not in COPPER_SAFETY]
+    ds["drc_exclusions"] = kept
+    with open(pro_path, "w") as f:
+        json.dump(pj, f, indent=2)
+    return len(excl) - len(kept)
+
+
+def floor_rules(fab_min):
+    mm = lambda v: f"{v:g}mm"
+    return "\n".join([
+        "(version 1)",
+        '(rule "pcb_rules canary"',
+        "  (constraint disallow footprint track))",
+        f'(rule "fab floor: copper clearance"\n  (constraint clearance (min {mm(fab_min["clearance"])})))',
+        f'(rule "fab floor: track width"\n  (constraint track_width (min {mm(fab_min["track"])})))',
+        f'(rule "fab floor: hole to copper"\n  (constraint hole_clearance (min {mm(fab_min["hole_clearance"])})))',
+        f'(rule "fab floor: hole to hole"\n  (constraint hole_to_hole (min {mm(fab_min["hole_to_hole"])})))',
+        f'(rule "fab floor: copper to edge"\n  (constraint edge_clearance (min {mm(fab_min["edge_clearance"])})))',
+        f'(rule "fab floor: drill"\n  (constraint hole_size (min {mm(fab_min["min_drill"])})))',
+        f'(rule "fab floor: via annular ring"\n  (condition "A.Type == \'Via\'")\n  (constraint annular_width (min {mm(fab_min["via_annular"])})))',
+    ]) + "\n"
+
+
+def managed_fabs(dru_path):
+    """Fabs recorded by `apply` in the managed block header, or []."""
+    if not os.path.exists(dru_path):
+        return []
+    with open(dru_path) as f:
+        m = re.search(re.escape(BEGIN) + r" \(([^,]+),", f.read())
+    return m.group(1).split("+") if m else []
+
+
+def _violation_row(v):
+    items = "; ".join(f"{i.get('description', '')} @ ({i['pos']['x']:.3f}, {i['pos']['y']:.3f})" for i in v.get("items", []))
+    return f"`{v.get('type')}`: {v.get('description', '')} — {items}"
 
 
 # ----------------------------------------------------------------------------------------------- apply
@@ -396,7 +667,7 @@ def project_paths(path):
 
 
 def dru_block(fab_min, fabs, layers, low_classes):
-    """Custom rules for fab limits that Board Setup has no field for.
+    """Custom rules for fab limits that Board Setup has no field for, plus the corner rule.
 
     Two KiCad behaviours shape this block (both verified on KiCad 10.0.6):
     - a custom-rule constraint replaces the net-class value and the Board Setup minimum, even when it is
@@ -430,8 +701,11 @@ def dru_block(fab_min, fabs, layers, low_classes):
     if "inner_track" in fab_min:
         lines += ['(rule "fab: inner-layer track width"', "  (layer inner)",
                   f"  (constraint track_width (min {mm(fab_min['inner_track'])})))"]
-    lines += ['(rule "quality: no acute track corners"',
-              "  (constraint track_angle (min 90)))",
+    # 180 = straight, 135 = 45-degree bend, 90 = right angle. KiCad also flags tees, Y-branches and turns at
+    # vias with this rule, but not tracks meeting at a pad. Write (min 135), never (min 135deg): the unit
+    # makes KiCad drop the whole file without an error.
+    lines += ['(rule "quality: 45-degree corners only (no 90-degree or acute corners, no mid-track branches)"',
+              f"  (constraint track_angle (min {MIN_CORNER})))",
               END]
     return "\n".join(lines) + "\n"
 
@@ -506,7 +780,9 @@ def cmd_apply(a):
         "min_text_thickness": fab_min["silk_line"],
     })
     sev = ds.setdefault("rule_severities", {})
-    for k in ("track_angle", "silk_overlap", "silk_over_copper", "text_height", "text_thickness"):
+    for k in COPPER_SAFETY + ["track_angle"]:
+        sev[k] = "error"
+    for k in ("silk_overlap", "silk_over_copper", "text_height", "text_thickness"):
         if sev.get(k) == "ignore":
             sev[k] = "warning"
     if a.netclasses:
@@ -529,6 +805,7 @@ def cmd_apply(a):
         print("  source:", n)
     print(f"  constraints: track {fab_min['track']} / clearance {fab_min['clearance']} / via {fab_min['via_drill']}/{fab_min['via_diameter']} "
           f"/ edge {fab_min['edge_clearance']} mm; mask web {fab_min['mask_bridge']} mm{' (board setup)' if web_ok else ' (set it in Board Setup)'}")
+    print(f"  copper-safety checks set to error: {', '.join(COPPER_SAFETY)}; corners: track_angle min {MIN_CORNER}")
     print(f"  design values for net classes: track {design['track']} / clearance {design['clearance']} / via {design['via_drill']}/{design['via_diameter']} mm"
           + ("" if a.netclasses else "  (use --netclasses to write them to Default)"))
     cli = find_cli(a.kicad_cli)
@@ -549,35 +826,100 @@ def cmd_check(a):
             sys.exit(f"unknown gate '{k}'; gates: {', '.join(GATES)}")
         GATES[k] = (GATES[k][0], float(v))
     board = os.path.abspath(a.board)
+    pro, _, dru = project_paths(board)
     b = Board(board)
     metrics, examples, worst, direction = geometry_report(b)
+    fabs = a.fab.split(",") if a.fab else managed_fabs(dru)
+    fab_min = combined_rules(fabs, len(b.copper_layers))[0] if fabs else None
     lines = [f"# PCB rules check: {os.path.basename(board)}", ""]
-    failures, warnings = [], []
-    drc = None
+    failures, warnings, drc_info, copper = [], [], None, {}
+
     if not a.no_drc:
         cli = find_cli(a.kicad_cli)
         if not cli:
             sys.exit("kicad-cli not found (set --kicad-cli or $KICAD_CLI), or use --no-drc")
-        drc = summarize_drc(run_drc(cli, board, refill=not a.no_refill))
-        errs = drc["errors"] + drc["parity_errors"] + (0 if a.allow_unrouted else drc["unconnected"])
-        lines += [f"## KiCad DRC ({drc['version']})", "",
-                  f"- errors: **{drc['errors']}**, unconnected: **{drc['unconnected']}**"
-                  f"{' (allowed)' if a.allow_unrouted else ''}, schematic parity: {drc['parity_errors']} errors / {drc['parity_warnings']} warnings", ""]
-        for (sev, typ), n in sorted(drc["by_type"].items(), key=lambda kv: (kv[0][0] != "error", -kv[1])):
+        tmp, copy = project_copy(board)
+        try:
+            removed = force_copper_safety(os.path.splitext(copy)[0] + ".kicad_pro")
+            data = run_drc(cli, copy, refill=not a.no_refill)
+            floor = None
+            if fab_min and not a.no_floor:
+                with open(os.path.splitext(copy)[0] + ".kicad_dru", "w") as f:
+                    f.write(floor_rules(fab_min))
+                fdata = run_drc(cli, copy, refill=not a.no_refill, parity=False)
+                vs = fdata.get("violations", [])
+                if not any("pcb_rules canary" in v.get("description", "") for v in vs) and (b.pads or b.segments):
+                    sys.exit("fab-floor rules were not loaded by KiCad (canary missing); use --no-floor and report this")
+                floor = [v for v in vs if "fab floor" in v.get("description", "")]
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+        viol = data.get("violations", [])
+        by = Counter((v.get("severity", "error"), v.get("type", "?")) for v in viol)
+        parity = Counter(v.get("severity", "error") for v in data.get("schematic_parity", []))
+        unconnected = len(data.get("unconnected_items", []))
+        errors = sum(n for (sev, _), n in by.items() if sev == "error")
+        shorts = [v for v in viol if v.get("type") in SHORT_TYPES]
+        clear = [v for v in viol if v.get("type") in COPPER_SAFETY and v.get("type") not in SHORT_TYPES]
+        dangling = sum(1 for v in viol if v.get("type") in ("track_dangling", "via_dangling"))
+        metrics.update(shorts=len(shorts), clearance_violations=len(clear),
+                       below_fab_minimum=None if floor is None else len(floor), dangling=dangling)
+        if a.allow_unrouted:
+            GATES["dangling"] = ("soft", GATES["dangling"][1])
+        drc_info = dict(version=data.get("kicad_version", "?"), errors=errors, unconnected=unconnected,
+                        parity_errors=parity.get("error", 0), parity_warnings=parity.get("warning", 0),
+                        by_type={f"{s}:{t}": n for (s, t), n in by.items()}, exclusions_removed=removed)
+        lines += ["## Shorts and clearance", "",
+                  f"KiCad DRC on a copy of the project: {', '.join(COPPER_SAFETY)} forced to error, all errors per track reported"
+                  + (f", {removed} DRC exclusion(s) of these checks ignored" if removed else "") + ".",
+                  (f"Fab floor ({'+'.join(fabs)}): every copper gap, track, hole and edge distance checked against the fab's absolute "
+                   f"minimum (clearance {fab_min['clearance']:g} mm, track {fab_min['track']:g} mm, hole to copper {fab_min['hole_clearance']:g} mm), "
+                   "whatever the project's rules say." if floor is not None else
+                   "Fab floor: not run (no fab known: run `apply` or pass `--fab`)."), "",
+                  f"- shorts: **{len(shorts)}**", f"- clearance and copper-safety violations: **{len(clear)}**",
+                  f"- below the fab minimum: **{'n/a' if floor is None else len(floor)}**", ""]
+        for title, vs in (("Shorts", shorts), ("Clearance", clear), ("Below fab minimum", floor or [])):
+            if vs:
+                lines.append(f"**{title}** (first {min(len(vs), 15)} of {len(vs)})")
+                lines += [f"- {_violation_row(v)}" for v in vs[:15]]
+                lines.append("")
+        errs = errors + parity.get("error", 0) + (0 if a.allow_unrouted else unconnected)
+        lines += [f"## KiCad DRC ({drc_info['version']})", "",
+                  f"- errors: **{errors}**, unconnected: **{unconnected}**"
+                  f"{' (allowed)' if a.allow_unrouted else ''}, schematic parity: {parity.get('error', 0)} errors / {parity.get('warning', 0)} warnings", ""]
+        for (sev, typ), n in sorted(by.items(), key=lambda kv: (kv[0][0] != "error", -kv[1])):
             lines.append(f"  - {sev} `{typ}`: {n}")
         lines.append("")
         if errs:
             failures.append(f"DRC: {errs} error(s)")
-    lines += ["## Layout quality", "", "| Metric | Value | Gate | Result |", "|---|---|---|---|"]
+    else:
+        limit = fab_min["clearance"] if fab_min else 0.0
+        sh, gp = copper_check(b, limit if fab_min else 0.0)
+        metrics.update(shorts=len(sh), clearance_violations=len(gp) if fab_min else None, below_fab_minimum=None, dangling=None)
+        lines += ["## Shorts and clearance (geometry only, no KiCad)", "",
+                  f"Tracks, arcs, vias and pads of different nets on a shared copper layer: touching = short; gap below "
+                  + (f"the {'+'.join(fabs)} minimum {limit:g} mm = violation." if fab_min else "nothing checked (no fab known: pass `--fab`).")
+                  + " Zones, net-class clearances and custom-shaped pads need KiCad DRC.", "",
+                  f"- shorts: **{len(sh)}**", f"- gaps below the fab minimum: **{len(gp) if fab_min else 'n/a'}**", ""]
+        for title, vs in (("Shorts", sh), ("Gaps", gp)):
+            if vs:
+                lines.append(f"**{title}** (first {min(len(vs), 15)} of {len(vs)})")
+                lines += [f"- {v['a']} / {v['b']} on {v['layer']}: gap {v['gap']:g} mm near {v['near']}" for v in vs[:15]]
+                lines.append("")
+
+    lines += ["## Gates", "", "| Metric | Value | Gate | Result |", "|---|---|---|---|"]
     for k, (kind, limit) in GATES.items():
-        val = metrics[k]
+        val = metrics.get(k)
+        if val is None:
+            lines.append(f"| {k} | not run | ≤ {limit:g} ({kind}) | – |")
+            continue
         ok = val <= limit
         shown = f"{val:.2f}" if isinstance(val, float) else str(val)
-        lines.append(f"| {k} | {shown} | ≤ {limit} ({kind}) | {'pass' if ok else ('FAIL' if kind == 'hard' else 'warn')} |")
+        lines.append(f"| {k} | {shown} | ≤ {limit:g} ({kind}) | {'pass' if ok else ('FAIL' if kind == 'hard' else 'warn')} |")
         if not ok:
-            (failures if kind == "hard" else warnings).append(f"{k} = {shown} (limit {limit})")
-    lines += ["", f"{metrics['segments']} track segments, {metrics['vias']} vias. Angles within ±{ANGLE_TOL}° of 0/45/90/135° count as on-grid; "
-              f"jogs are interior segments < {JOG_MM} mm; short = interior segments < {SHORT_MM} mm.", ""]
+            (failures if kind == "hard" else warnings).append(f"{k} = {shown} (limit {limit:g})")
+    lines += ["", f"{metrics['segments']} track segments, {metrics['vias']} vias. On-grid = within ±{ANGLE_TOL}° of 0/45/90/135°. "
+              f"Corners must be ≥ {MIN_CORNER}° (45° bends); branches belong on pads, not mid-track or on vias. "
+              f"Jogs: interior segments < {JOG_MM} mm between parallel runs; short: interior segments < {SHORT_MM} mm.", ""]
     for k, ex in examples.items():
         if ex:
             lines.append(f"**{k}** (first {len(ex)}: layer, net, x, y, value)")
@@ -605,9 +947,8 @@ def cmd_check(a):
             f.write(text)
     if a.json:
         with open(a.json, "w") as f:
-            json.dump(dict(metrics=metrics, examples=examples, direction=direction, failures=failures, warnings=warnings,
-                           drc=None if drc is None else dict(drc, by_type={f"{s}:{t}": n for (s, t), n in drc["by_type"].items()})),
-                      f, indent=2)
+            json.dump(dict(metrics=metrics, examples=examples, direction=direction, failures=failures,
+                           warnings=warnings, fabs=fabs, drc=drc_info), f, indent=2)
     print(text)
     return 1 if failures else 0
 
@@ -623,13 +964,15 @@ def main():
     p.add_argument("--netclasses", action="store_true", help="raise the Default net class to the design values")
     p.add_argument("--kicad-cli")
     p.add_argument("--no-validate", action="store_true")
-    c = sub.add_parser("check", help="DRC + layout-quality gate")
+    c = sub.add_parser("check", help="shorts/clearance + DRC + layout-quality gate")
     c.add_argument("board")
+    c.add_argument("--fab", help="fab profile(s) for the fab-floor check (default: the ones `apply` recorded)")
     c.add_argument("--kicad-cli")
     c.add_argument("--no-drc", action="store_true", help="geometry checks only (no KiCad needed)")
+    c.add_argument("--no-floor", action="store_true", help="skip the fab-floor DRC pass")
     c.add_argument("--no-refill", action="store_true")
     c.add_argument("--allow-unrouted", action="store_true", help="do not fail on unconnected items (layout in progress)")
-    c.add_argument("--gate", action="append", metavar="NAME=LIMIT", help="override a gate limit, e.g. --gate any_angle_segments=4")
+    c.add_argument("--gate", action="append", metavar="NAME=LIMIT", help="override a gate limit, e.g. --gate track_junctions=4")
     c.add_argument("--report", help="write the Markdown report here")
     c.add_argument("--json", help="write metrics as JSON here")
     a = ap.parse_args()

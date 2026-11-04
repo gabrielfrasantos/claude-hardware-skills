@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Self-test for pcb_rules.py geometry checks. Run: python3 test_pcb_rules.py (no KiCad needed)."""
+import math
 import os
 import sys
 import unittest
@@ -55,10 +56,53 @@ class Geometry(unittest.TestCase):
         b = board(seg(0, 0, 5, 0), seg(5, 0, 1, 1))
         self.assertEqual(self.metrics(b)["acute_corners"], 1)
 
-    def test_right_angle_and_tee_are_not_acute(self):
-        b = board(seg(0, 0, 5, 0), seg(5, 0, 5, 5), seg(5, 0, 10, 0))
-        self.assertEqual(self.metrics(b)["acute_corners"], 0)
+    def test_right_angle_corner(self):
+        m = self.metrics(board(seg(0, 0, 5, 0), seg(5, 0, 5, 5)))
+        self.assertEqual((m["right_angle_corners"], m["acute_corners"]), (1, 0))
 
+    def test_tee_is_a_junction(self):
+        m = self.metrics(board(seg(0, 0, 5, 0), seg(5, 0, 10, 0), seg(5, 0, 5, 5)))
+        self.assertEqual((m["track_junctions"], m["right_angle_corners"], m["acute_corners"]), (1, 0, 0))
+
+    def test_branch_on_a_pad_is_allowed(self):
+        m = self.metrics(board(fp("R1", 5, 0, 0, [("1", 0, 0)], "N"), seg(0, 0, 5, 0), seg(5, 0, 10, 0), seg(5, 0, 5, 5)))
+        self.assertEqual((m["track_junctions"], m["right_angle_corners"]), (0, 0))
+
+    def test_right_angle_on_a_via_is_flagged(self):
+        via = '(via (at 5 0) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "N"))\n'
+        m = self.metrics(board(via, seg(0, 0, 5, 0), seg(5, 0, 5, 5)))
+        self.assertEqual(m["right_angle_corners"], 1)
+
+
+class Copper(unittest.TestCase):
+    def test_crossing_nets_short(self):
+        sh, gp = pcb_rules.copper_check(board(seg(0, 0, 10, 0, "A"), seg(5, -5, 5, 5, "B")), 0.1)
+        self.assertEqual((len(sh), len(gp)), (1, 0))
+
+    def test_gap_below_limit(self):
+        # 0.25 mm wide tracks, centres 0.3 mm apart: 0.05 mm gap
+        sh, gp = pcb_rules.copper_check(board(seg(0, 0, 10, 0, "A"), seg(0, 0.3, 10, 0.3, "B")), 0.1)
+        self.assertEqual((len(sh), len(gp)), (0, 1))
+        self.assertAlmostEqual(gp[0]["gap"], 0.05, places=3)
+
+    def test_same_net_and_other_layer_ignored(self):
+        sh, gp = pcb_rules.copper_check(board(seg(0, 0, 10, 0, "A"), seg(5, -5, 5, 5, "A"),
+                                              seg(0, 0.1, 10, 0.1, "B", "B.Cu")), 0.1)
+        self.assertEqual((len(sh), len(gp)), (0, 0))
+
+    def test_roundrect_corner_is_round(self):
+        # 1 x 1 mm pad, 25 % corner radius; a 0.6 mm via sits 0.2 mm off the rounded corner, on the diagonal
+        r = 0.25
+        corner_gap = math.hypot(0.5 - r, 0.5 - r)          # centre to the corner arc centre
+        vx = vy = (corner_gap + r + 0.2 + 0.3) / math.sqrt(2)
+        b = board('(footprint "X" (layer "F.Cu") (at 0 0 90) (property "Reference" "U1") '
+                  '(pad "1" smd roundrect (at 0 0 90) (size 1 1) (layers "F.Cu") (roundrect_rratio 0.25) (net "A")))\n',
+                  f'(via (at {vx} {vy}) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "B"))\n')
+        sh, gp = pcb_rules.copper_check(b, 0.25)
+        self.assertEqual(len(gp), 1)
+        self.assertAlmostEqual(gp[0]["gap"], 0.2, places=3)
+
+class Parsing(unittest.TestCase):
     def test_pad_rotation(self):
         # KiCad rotates counter-clockwise on a y-down board: local (1, 0) at 90 degrees lands at (x, y - 1)
         b = board(fp("R1", 10, 10, 90, [("1", 1, 0)], "N"))
@@ -84,7 +128,7 @@ class Rules(unittest.TestCase):
         self.assertNotIn("pad to pad", pcb_rules.dru_block(fab_min, ["jlcpcb"], 2, []))
         block = pcb_rules.dru_block(fab_min, ["jlcpcb"], 2, ["Fine"])
         self.assertIn("A.NetClass == 'Fine'", block)
-        self.assertIn("track_angle (min 90)", block)   # "90deg" makes KiCad drop the whole file
+        self.assertIn("track_angle (min 135)", block)   # "135deg" makes KiCad drop the whole file
 
 
 if __name__ == "__main__":

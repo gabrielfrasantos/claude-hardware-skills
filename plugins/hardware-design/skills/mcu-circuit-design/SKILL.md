@@ -203,7 +203,7 @@ The 20-pin Debug+ETM connector shares the first 10 pins [SEGGER][Keil].
 
 **Generic rule:**
 - ESD array at the connector (D+/D−, and VBUS);
-- D+/D− as a 90 Ω differential pair [SPMA056][AN4879][RT-HDG];
+- D+/D− as a 90 Ω differential pair [SPMA056][RT-HDG] (layout details in the `interface-layout` skill);
 - VBUS sensing that respects the pin's tolerance, also when the MCU is unpowered;
 - VBUS capacitance within the spec limit;
 - check whether the PHY integrates the series resistors and the D+ pull-up.

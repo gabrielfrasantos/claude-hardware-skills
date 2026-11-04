@@ -12,6 +12,9 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around any microcontroller (STM32, Tiva, NXP, AVR, ...): supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | ready |
 | [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Design op-amp, reference, ADC-drive and sensor circuits: protection, noise, stability, component choice | ready |
 | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | ready |
+| [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Route memories (QSPI/OctoSPI/HyperBus, SDRAM, DDR/LPDDR, SD/eMMC), displays (RGB, MIPI DSI/CSI, LVDS), cameras and clocks | ready |
+| `interface-layout` | Lay out USB, USB-C, CAN/CAN FD, RS-485, Ethernet and connector ESD | in progress |
+| `rf-layout` | Lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi): 50 Ω lines, matching, antennas, crystals, coexistence, pitfalls | in progress |
 
 ## Install
 

@@ -1,0 +1,11 @@
+{
+  "name": "hardware-design",
+  "displayName": "Hardware Design",
+  "description": "Skills for electronics hardware design in KiCad: power PCB layout, MCU and analog circuit design, and SPICE simulation",
+  "author": {
+    "name": "Gabriel Santos",
+    "url": "https://github.com/gabrielfrasantos"
+  },
+  "repository": "https://github.com/gabrielfrasantos/claude-hardware-skills",
+  "keywords": ["kicad", "pcb", "power-electronics", "analog", "microcontroller", "spice", "ngspice"]
+}

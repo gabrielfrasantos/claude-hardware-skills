@@ -1,0 +1,15 @@
+{
+  "name": "hardware-skills",
+  "description": "Claude skills for electronics hardware design: PCB layout for power devices, MCU and analog circuit design, circuit simulation",
+  "owner": {
+    "name": "Gabriel Santos",
+    "url": "https://github.com/gabrielfrasantos"
+  },
+  "plugins": [
+    {
+      "name": "hardware-design",
+      "source": "./plugins/hardware-design",
+      "description": "Power PCB layout, MCU and analog circuit design, and SPICE simulation skills for KiCad projects"
+    }
+  ]
+}

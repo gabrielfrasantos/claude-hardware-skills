@@ -38,9 +38,10 @@ def main():
     rows.sort(key=lambda r: r["Reference"])
     with open(ROOT / "bom" / "bom.csv", "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
-        writer.writerow(["group", "function", "mpn", "lcsc", "qty", "notes"])
+        writer.writerow(["group", "function", "mpn", "lcsc", "qty", "notes", "footprint"])
         for row in rows:
-            writer.writerow(["schematic", row["Value"], row["MPN"], row["LCSC"], row["Qty"], row["Reference"]])
+            writer.writerow(["schematic", row["Value"], row["MPN"], row["LCSC"], row["Qty"], row["Reference"],
+                             row["Footprint"].split(":")[-1]])
     with open(ROOT / "bom" / "bom_jlc.csv", "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
         writer.writerow(["Comment", "Designator", "Footprint", "LCSC Part #"])

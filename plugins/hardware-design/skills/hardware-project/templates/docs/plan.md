@@ -47,8 +47,8 @@ keep-outs); test points placed and reachable; the reviewer agent's verdict; owne
 
 ## Phase 4: fab and bring-up
 - `export_jlcpcb.py`; check rotations in the fab's viewer.
-- Assembly pre-flight: fiducials or the fab's edge rails, part spacing and edge keep-outs (`pcb-placement` gate),
-  `jlc_stock.py` (stock and lifecycle).
+- Assembly pre-flight: `place.py gate` assembly checks (part spacing, edge keep-outs, fiducials or the fab's edge
+  rails, orientation); `jlc_stock.py` (stock, packages, lifecycle, alternates).
 - The fab's own DFM analysis of the Gerbers reviewed; options ordered as designed (impedance control, via-in-pad,
   inner copper weight, acceptance class).
 - EMC: a pre-compliance scan planned for the first boards when the product needs certification (radiated and

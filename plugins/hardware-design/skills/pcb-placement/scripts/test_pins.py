@@ -110,6 +110,17 @@ class Pins(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("breaks group", out)
 
+    def test_boot_and_swd_pins_are_reserved(self):
+        with open(self.csv, "w") as f:
+            f.write(PIN_DATA.replace("1,PA1,SPI1_SCK USART1_TX", "1,PA1,SPI1_SCK USART1_TX SYS_JTMS-SWDIO")
+                            .replace("7,PD7,USART1_TX ADC1_IN7", "7,PH3-BOOT0,GPIO"))
+        b = self.board(None, part("R1", 40, 49, "LED"))
+        code, out = self.run_cmd("assign", b, "LED GPIO\n")
+        self.assertEqual(code, 0, out)
+        self.assertNotIn(self.assigned()["LED"][0], ("PA1", "PH3-BOOT0"))   # PA1 is nearest, but carries SWDIO
+        code, out = self.run_cmd("assign", b, "LED PA1\n")                   # named exactly: allowed
+        self.assertEqual((code, self.assigned()["LED"][0]), (0, "PA1"), out)
+
     def test_net_on_two_pins(self):
         b = self.board({"1": "IRQ", "3": "IRQ", "8": "VDD"})
         code, out = self.run_cmd("check", b, "IRQ GPIO\nIRQ~2 GPIO\n")

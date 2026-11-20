@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """place.py: placement gate and optimizer for KiCad 10 boards. The owner's locked footprints never move.
 
-    place.py gate     <board.kicad_pcb> [--baseline baseline.json] [--limit 1.10] [--enforce]
+    place.py gate     <board.kicad_pcb> [--baseline baseline.json] [--limit 1.10] [--enforce] [--assembly jlcpcb|none]
                       [--report r.md] [--json r.json]
     place.py optimize <board.kicad_pcb> [--out other.kicad_pcb] [--only REF,...] [--seed 1] [--effort 1.0]
                       [--edge-mm 0.5] [--report r.md]
@@ -13,7 +13,8 @@ gate      validity: parts with a pad off the board, courtyard overlaps (pairs of
           crossings (a via estimate), decoupling distance (capacitor to nearest IC pad on its supply, 90th pct).
           With --baseline (a JSON of the same metrics, e.g. the owner's earlier placement) it gives the ratios.
           Report-only until the evals set limits (docs/design.md D25); --enforce exits 1 when invalid or a ratio
-          is above --limit.
+          is above --limit. Then the assembly checks of dfa.py (--assembly, default jlcpcb): package-pair spacing,
+          edge keep-outs, fiducials, orientation; --enforce also fails on assembly spacing.
 optimize  simulated annealing over the unlocked footprints (or --only), translation only: rotation and side are
           kept. Cost = ratsnest length + 2 x decoupling distance, with overlaps, area outside the board (inset by
           --edge-mm) and keep-out area as penalties. Then each part still in conflict goes to the nearest legal
@@ -37,7 +38,6 @@ import sys
 import numpy as np
 from shapely import affinity
 from shapely.geometry import Point, Polygon
-from shapely.ops import unary_union
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -378,6 +378,12 @@ def cmd_gate(a):
         with open(a.baseline) as f:
             base = json.load(f)
     text, ok = gate_report(m, base, a.limit, os.path.basename(a.board))
+    if a.assembly != "none":
+        import dfa
+        dm, detail, prof = dfa.check(a.board, a.assembly)
+        text += "\n" + dfa.report(dm, detail, prof)
+        m["assembly"] = dm
+        ok = ok and dm["assembly_spacing"] == 0
     print(text)
     if a.report:
         with open(a.report, "w") as f:
@@ -488,7 +494,8 @@ def main(argv=None):
     g.add_argument("--baseline")
     g.add_argument("--manifest", help="an eval fixture's manifest: its plane nets are left out of the ratsnest")
     g.add_argument("--limit", type=float, default=1.10, help="ratio to the baseline (D25: +10 %%)")
-    g.add_argument("--enforce", action="store_true", help="exit 1 when invalid or above the limit")
+    g.add_argument("--enforce", action="store_true", help="exit 1 when invalid, above the limit, or on assembly spacing")
+    g.add_argument("--assembly", default="jlcpcb", help="assembler profile for the assembly checks, or 'none'")
     g.add_argument("--report")
     g.add_argument("--json")
     for name in ("optimize", "propose"):

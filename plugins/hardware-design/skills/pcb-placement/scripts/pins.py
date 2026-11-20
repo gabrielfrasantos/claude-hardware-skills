@@ -33,7 +33,9 @@ function, generated from ST's STM32_open_pin_data), or --pin-data, a CSV with co
 assign  For every function, the target is the centroid of its net's other pads on the placed board. Functions are
         assigned to free I/O pads (no net, or a net that is itself a function) by minimum total distance (Hungarian),
         over every choice of peripheral instances, with each alternate-function signal used on one pin only. Pads
-        on other nets (supplies, crystal, debug not in the needs) are never used. Writes the pin map as text:
+        on other nets (supplies, crystal, debug not in the needs) are never used, and neither are reserved pins:
+        boot-strap pins (BOOT in the name or an alternate) and the SWD pins (SWDIO, SWCLK), whose state at reset
+        matters, unless a need names the pin exactly or --allow-reserved is given. Writes the pin map as text:
         function, pin, pad, signal, package side, distance; and compares with the board's current assignment.
 check   The board's current assignment (MCU pads carrying function nets) against the needs: every function on a
         pin that offers one of its signals, placeholders consistent per group, no signal on two pins. Exit 1 on
@@ -57,6 +59,7 @@ import boardgeo as G  # noqa: E402
 
 R = G.R
 IO = re.compile(r"^P[A-Z]\d{1,2}$")
+RESERVED = re.compile(r"BOOT|SWDIO|SWCLK", re.I)   # strap and debug pins: their level at reset matters
 INF = 1e9
 EXHAUSTIVE = 5000      # instance combinations searched exhaustively; above this, coordinate descent
 
@@ -182,7 +185,11 @@ def side_of(dx, dy):
 
 
 # ------------------------------------------------------------------------------------------------- model
-def load(board_path, ref, needs_path, pin_data=None):
+def reserved(pad):
+    return bool(RESERVED.search(pad["name"]) or any(RESERVED.search(a) for a in pad["alternates"]))
+
+
+def load(board_path, ref, needs_path, pin_data=None, allow_reserved=False):
     b = G.Board(board_path)
     mcu = b.by_ref().get(ref)
     if mcu is None:
@@ -195,8 +202,10 @@ def load(board_path, ref, needs_path, pin_data=None):
         if p["num"] in pins:
             pads[p["num"]] = dict(pins[p["num"]], num=p["num"], x=p["x"], y=p["y"], net=base(p["net"]),
                                   side=side_of(p["x"] - mcu["x"], p["y"] - mcu["y"]))
+    exact = {alt for x in needs for alt in x["spec"] if IO.match(alt)}
     free = [p for p in pads.values() if (not p["net"] or p["net"].startswith("unconnected-") or p["net"] in nets)
-            and (IO.match(p["name"]) or p["alternates"])]
+            and (IO.match(p["name"]) or p["alternates"])
+            and (allow_reserved or not reserved(p) or p["name"] in exact)]
     pts = {}
     for f in b.footprints:
         if f["ref"] == ref:
@@ -347,7 +356,7 @@ def current_cost(model):
 
 # ------------------------------------------------------------------------------------------------- commands
 def cmd_assign(a):
-    model = load(a.board, a.mcu, a.needs, a.pin_data)
+    model = load(a.board, a.mcu, a.needs, a.pin_data, getattr(a, "allow_reserved", False))
     print(f"{a.mcu}: {len(model['pads'])} pads with pin data ({model['source']}), {len(model['free'])} free I/O pads, "
           f"{len(model['needs'])} functions, {len(model['targets'])} with a target on the board")
     cost, rows, binding = assign(model)
@@ -400,6 +409,8 @@ def main(argv=None):
         p.add_argument("--pin-data", help="CSV number,name,alternates instead of the schematic's symbol")
         if name == "assign":
             p.add_argument("--out", help="write the pin map here")
+            p.add_argument("--allow-reserved", action="store_true",
+                           help="also use boot-strap and SWD pins (BOOT, SWDIO, SWCLK) for other functions")
     a = ap.parse_args(argv)
     return cmd_assign(a) if a.cmd == "assign" else cmd_check(a)
 

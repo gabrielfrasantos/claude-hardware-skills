@@ -92,7 +92,7 @@ DIAG_MM = 2.0       # a 45-degree segment longer than this is a "long diagonal" 
 
 # ----------------------------------------------------------------------------------------------- profiles
 def list_profiles():
-    return sorted(f[:-5] for f in os.listdir(PROFILE_DIR) if f.endswith(".json"))
+    return sorted(f[:-5] for f in os.listdir(PROFILE_DIR) if f.endswith(".json") and f != "stackups.json")
 
 
 def load_profile(name):

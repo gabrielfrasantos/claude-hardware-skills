@@ -41,7 +41,7 @@ The fixture keeps the anchors (locked), parks every other footprint right of the
 sheet, and drops tracks, vias, groups and copper zones (teardrops included); rule areas stay. `baseline.json` is the
 source board's own score.
 
-## Scores (`metrics.py`)
+## Scores (`placement_metrics.py`, in the pcb-placement skill)
 
 A run is **valid** when no anchor moved, every parked part is inside the outline, no courtyards overlap (real
 outlines, so notches count) and no copper was added. For valid runs, lower is better:

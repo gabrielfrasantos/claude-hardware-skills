@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Placement metrics of a KiCad 10 board, computed from the file alone (no KiCad needed).
 
-    python3 evals/metrics.py board.kicad_pcb [--manifest fixtures/<case>/manifest.json] [--json]
+    python3 placement_metrics.py board.kicad_pcb [--manifest manifest.json] [--json]
 
 Validity (a placement with any of these is invalid):
   anchors_moved     anchors (manifest) whose position, rotation or side changed, or that are missing

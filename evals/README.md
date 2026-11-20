@@ -21,6 +21,20 @@ A placement run costs real money and can take up to an hour (`max_budget_usd` an
 Run it by hand, not in CI. Work directories go to `<board-repo>/evals/work/` (gitignore it there); summaries to
 `<board-repo>/evals/results/`.
 
+## KiCad 10 validation (docs/design.md §9, Phase B)
+
+`validate_kicad.py` runs every script that writes a KiCad file on copies of a real board and has KiCad 10 load, DRC
+and ERC each result. The board repo is not touched.
+
+```bash
+python3 evals/validate_kicad.py <board-repo> --out <dir> [--mcu U301 --needs pin-data/pin-needs.txt] [--pcbdoc reference/<x>.PcbDoc]
+# Windows: add --kicad-cli "C:/Program Files/KiCad/10.0/bin/kicad-cli.exe"
+python3 evals/test_validate_kicad.py        # self-test with a stand-in kicad-cli
+```
+
+It writes `<dir>/validation.md`: B0–B9 PASS / FAIL / SKIP with the evidence, and the few checks only the KiCad
+window can show.
+
 ## Review: seeded defects
 
 `review_defects.py` measures a design review on a real board, with no Claude run needed for the scripted part:

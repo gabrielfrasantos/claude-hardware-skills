@@ -3,6 +3,7 @@
 import json
 import os
 import pathlib
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -90,20 +91,31 @@ class Editing(unittest.TestCase):
 
 
 class Fixture(unittest.TestCase):
+    """A throwaway board repo with one commit and a case, as a board repo would hold it."""
+
     def setUp(self):
         self.tmp = pathlib.Path(tempfile.mkdtemp())
-        src = self.tmp / "src"
-        src.mkdir()
+        repo = self.tmp / "board-repo"
+        (repo / "hw" / "b").mkdir(parents=True)
+        (repo / "evals" / "cases").mkdir(parents=True)
         board = text(fp("J1", 5, 15, ["A", "GND"], locked=True), fp("U1", 20, 15, ["A", "VBUS"]),
                      fp("C1", 21, 18, ["VBUS", "GND"]), fp("R1", 30, 15, ["A", "B"]), SEG, VIA, ZONE, KEEPOUT)
-        (src / "b.kicad_pcb").write_text(board)
-        (src / "b.kicad_pro").write_text('{"meta": {"filename": "b.kicad_pro"}}')
-        spec = {"name": "t", "source": {"repo": "x", "commit": "0", "board": "b.kicad_pcb"},
-                "anchors": {"locked": True}}
-        self.out, self.manifest, self.baseline = F.make(spec, src, self.tmp / "fixtures")
+        (repo / "hw" / "b" / "b.kicad_pcb").write_text(board)
+        (repo / "hw" / "b" / "b.kicad_pro").write_text('{"meta": {"filename": "b.kicad_pro"}}')
+        git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@t"]
+        subprocess.run(git[:3] + ["init", "-q"], check=True)
+        subprocess.run(git + ["add", "."], check=True)
+        subprocess.run(git + ["commit", "-qm", "board"], check=True)
+        sha = subprocess.run(git + ["rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        (repo / "hw" / "b" / "b.kicad_pcb").write_text("(kicad_pcb (changed after the commit))")
+        case = {"source": {"commit": sha, "board": "hw/b/b.kicad_pcb"}, "anchors": {"locked": True}}
+        (repo / "evals" / "cases" / "placement.json").write_text(json.dumps(case))
+        self.case = F.load_case(repo / "evals" / "cases" / "placement.json")
+        self.out, self.manifest, self.baseline = F.build(self.case)
 
     def test_fixture(self):
-        b = G.Board(self.out / "t.kicad_pcb")
+        self.assertEqual(self.out, self.tmp / "board-repo" / "evals" / "work" / "fixture-placement")
+        b = G.Board(self.out / "b.kicad_pcb")       # read from the commit, not the changed working tree
         refs = b.by_ref()
         self.assertEqual(list(self.manifest["anchors"]), ["J1"])
         self.assertTrue(refs["J1"]["locked"])
@@ -112,28 +124,29 @@ class Fixture(unittest.TestCase):
             self.assertFalse(refs[r]["locked"])
             self.assertGreater(min(p["x"] for p in refs[r]["pads"]), 50)       # parked right of the outline
         self.assertEqual((b.vias, b.segments), (0, 0))
-        self.assertIn("(keepout", (self.out / "t.kicad_pcb").read_text())
+        self.assertIn("(keepout", (self.out / "b.kicad_pcb").read_text())
         self.assertEqual(self.manifest["plane_nets"], ["VBUS"])
         self.assertTrue(self.baseline["valid"])
-        self.assertEqual(json.loads((self.out / "t.kicad_pro").read_text())["meta"]["filename"], "t.kicad_pro")
+        self.assertTrue((self.out / "b.kicad_pro").exists())
         m = M.measure(b, self.manifest)
         self.assertEqual((m["parts_off_board"], m["anchors_moved"], m["valid"]), (3, 0, False))
 
     def test_scoring_a_placement(self):
-        case = {"_manifest": self.manifest, "_baseline": self.baseline}
+        case = RUN.attach_fixture(self.case, self.out)
+        self.assertIn("b.kicad_pcb", case["_prompt"])
         wd = self.tmp / "work"
         wd.mkdir()
-        t = (self.out / "t.kicad_pcb").read_text()
+        t = (self.out / "b.kicad_pcb").read_text()
         edits = []
         for (kind, s, e), (x, y) in zip([b for b in G.blocks(t) if b[0] == "footprint"][1:], [(20, 15), (20, 18), (30, 15)]):
             edits.append((s, e, G.footprint_text(t[s:e], x=x, y=y)))
-        (wd / "t.kicad_pcb").write_text(G.rewrite(t, edits))
+        (wd / "b.kicad_pcb").write_text(G.rewrite(t, edits))
         r = RUN.score(case, wd)
         self.assertTrue(r["valid"], r)
         self.assertEqual(r["overlaps"], 0)
-        (wd / "t.kicad_pcb").write_text(G.rewrite(t, edits).replace("(at 20 18", "(at 20 15.5"))
+        (wd / "b.kicad_pcb").write_text(G.rewrite(t, edits).replace("(at 20 18", "(at 20 15.5"))
         self.assertGreater(RUN.score(case, wd)["overlaps"], 0)
-        (wd / "t.kicad_pcb").write_text("(kicad_pcb (broken")
+        (wd / "b.kicad_pcb").write_text("(kicad_pcb (broken")
         self.assertFalse(RUN.score(case, wd)["valid"])
 
     def test_transcript_facts(self):

@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
-"""Run the eval cases through headless Claude Code, with and without the plugin, and score the results.
+"""Run a board repo's eval cases through headless Claude Code, with and without the plugin, and score the results.
 
-    python3 evals/run.py                         every case in evals/cases/, both configurations, the case's runs
-    python3 evals/run.py --case pendulum-placement --runs 1 --config with-plugin
-    python3 evals/run.py --dry-run               print the commands, run nothing
-    python3 evals/run.py --rescore evals/work/<stamp>   score finished work directories again
+    python3 evals/run.py <board-repo>/evals                       every case, both configurations, the case's runs
+    python3 evals/run.py <board-repo>/evals --case placement --runs 1 --config with-plugin
+    python3 evals/run.py <board-repo>/evals --dry-run             print the commands, run nothing
+    python3 evals/run.py <board-repo>/evals --rescore <board-repo>/evals/work/<stamp>
 
-Each run gets a fresh copy of the case's fixture (KiCad files only: the manifest and baseline stay hidden) in
-evals/work/<stamp>/<case>/<config>-<n>/ (gitignored), and Claude runs there with:
+The cases live in the board repo (`evals/cases/*.json`); this repo holds only the harness. For each case, the fixture
+is built from the board repo's git history (make_fixture.py) into <board-repo>/evals/work/<stamp>/<case>/fixture/.
+Each run then gets a fresh copy of the fixture's KiCad files (the manifest and baseline stay hidden) in
+.../<case>/<config>-<n>/, and Claude runs there with:
   - `--setting-sources project`, so the user's settings and installed plugins do not load (the work directory has no
     project settings), and `--strict-mcp-config`, so no MCP servers load;
   - `--plugin-dir plugins/hardware-design` for the `with-plugin` configuration only;
   - `--permission-mode bypassPermissions` (the copy is disposable), `--max-budget-usd` from the case.
 The transcript (stream-json) is kept beside the board; the skills Claude loaded, its cost and turns are read from it.
 Scores come from the files only (metrics.py), against the fixture's baseline (the owner's placement). The summary is
-written to evals/results/<date>-<case>.json.
+written to <board-repo>/evals/results/<stamp>-<case>.json. `evals/work/` should be gitignored in the board repo.
 
 Run it by hand before a release tag, not in CI: a placement case costs real money and up to an hour per run.
 """
@@ -29,6 +31,7 @@ import subprocess
 import sys
 
 import boardgeo as G
+import make_fixture as F
 import metrics as M
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -38,13 +41,20 @@ LIMIT = 1.10     # docs/design.md D25: no worse than the human baseline + 10 %
 KICAD_SUFFIXES = (".kicad_pcb", ".kicad_pro", ".kicad_dru", ".kicad_sch", ".kicad_sym")
 
 
-def load_case(path):
-    case = json.loads(pathlib.Path(path).read_text(encoding="utf-8"))
-    fx = HERE / case["fixture"]
-    case["_fixture"] = fx
-    case["_manifest"] = json.loads((fx / "manifest.json").read_text(encoding="utf-8"))
-    case["_baseline"] = json.loads((fx / "baseline.json").read_text(encoding="utf-8"))
-    case["_prompt"] = (HERE / case["prompt"]).read_text(encoding="utf-8").format(name=case["_manifest"]["name"])
+def prompt_text(case, name):
+    """`prompt` is a built-in prompt (evals/prompts/<prompt>.md here) or a path relative to the case file."""
+    p = case.get("prompt", case.get("kind", "placement"))
+    path = HERE / "prompts" / f"{p}.md"
+    if not path.exists():
+        path = case["_path"].parent / p
+    return path.read_text(encoding="utf-8").format(name=name)
+
+
+def attach_fixture(case, fixture_dir):
+    case["_fixture"] = pathlib.Path(fixture_dir)
+    case["_manifest"] = json.loads((case["_fixture"] / "manifest.json").read_text(encoding="utf-8"))
+    case["_baseline"] = json.loads((case["_fixture"] / "baseline.json").read_text(encoding="utf-8"))
+    case["_prompt"] = prompt_text(case, case["_manifest"]["name"])
     return case
 
 
@@ -88,7 +98,7 @@ def transcript_facts(path):
 
 def score(case, workdir):
     board = workdir / f"{case['_manifest']['name']}.kicad_pcb"
-    out = {"workdir": str(workdir.relative_to(HERE)) if workdir.is_relative_to(HERE) else str(workdir)}
+    out = {"workdir": str(workdir)}
     out.update(transcript_facts(workdir / "transcript.jsonl"))
     try:
         m = M.measure(G.Board(board), case["_manifest"])
@@ -126,31 +136,38 @@ def summarise(case, runs):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("evals", type=pathlib.Path, help="the board repo's evals/ folder (holds cases/)")
     ap.add_argument("--case", action="append", help="case id (repeatable); default: all")
     ap.add_argument("--config", action="append", choices=CONFIGS, help="default: both")
     ap.add_argument("--runs", type=int, help="override the case's run count")
     ap.add_argument("--claude", default="claude", help="Claude Code executable")
     ap.add_argument("--model")
     ap.add_argument("--dry-run", action="store_true")
-    ap.add_argument("--rescore", type=pathlib.Path, help="an evals/work/<stamp> directory to score again")
+    ap.add_argument("--rescore", type=pathlib.Path, help="a <board-repo>/evals/work/<stamp> directory to score again")
     a = ap.parse_args(argv)
 
-    cases = [load_case(p) for p in sorted((HERE / "cases").glob("*.json"))]
+    cases = [F.load_case(p) for p in sorted((a.evals / "cases").glob("*.json"))]
     if a.case:
         cases = [c for c in cases if c["id"] in a.case]
+    if not cases:
+        sys.exit(f"no cases in {a.evals / 'cases'}")
     configs = a.config or list(CONFIGS)
-    stamp = datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
-    work = a.rescore or HERE / "work" / stamp
+    stamp = a.rescore.name if a.rescore else datetime.datetime.now().strftime("%Y-%m-%d-%H%M")
+    work = a.rescore or a.evals.resolve() / "work" / stamp
 
     for case in cases:
+        fixture = work / case["id"] / "fixture"
+        if not a.rescore:
+            F.build(case, fixture)
+        attach_fixture(case, fixture)
         runs = []
         for config in configs:
             for n in range(1, (a.runs or case.get("runs", 3)) + 1):
                 wd = work / case["id"] / f"{config}-{n}"
                 cmd = command(case, config, a.claude, a.model)
                 if a.dry_run:
-                    print(f"[{case['id']} {config}-{n}] cd {wd} &&", " ".join(
-                        repr(c) if " " in c or "\n" in c else c for c in cmd[:1] + ["-p", "<prompt>"] + cmd[3:]))
+                    print(f"[{case['id']} {config}-{n}] cd {wd} &&",
+                          " ".join(cmd[:1] + ["-p", "<prompt>"] + cmd[3:]))
                     continue
                 if not a.rescore:
                     prepare(case, wd)
@@ -174,7 +191,7 @@ def main(argv=None):
                   "baseline": {k: v for k, v in case["_baseline"].items() if k != "detail"},
                   "summary": summarise(case, runs),
                   "runs": [{k: v for k, v in r.items() if k != "detail"} for r in runs]}
-        out = HERE / "results" / f"{stamp}-{case['id']}.json"
+        out = a.evals / "results" / f"{stamp}-{case['id']}.json"
         out.parent.mkdir(exist_ok=True)
         out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(result["summary"], indent=2))

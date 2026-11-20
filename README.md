@@ -21,8 +21,8 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 
 - [`docs/design.md`](docs/design.md): where the plugin is going (rules → workflow → generation), the decisions behind
   it and the build order.
-- [`evals/`](evals/README.md): runs tasks on real boards with and without the plugin and scores the results against
-  the owner's own placement.
+- [`evals/`](evals/README.md): a generic harness that runs a board repo's eval cases with and without the plugin and
+  scores the results against the owner's own placement. The cases live in the board repos.
 
 ## Install
 
@@ -64,7 +64,7 @@ plugins/hardware-design/
         ├── SKILL.md                      # one folder per skill
         └── scripts/, profiles/           # optional helpers the skill calls
 docs/design.md                            # the plan and its decisions
-evals/                                    # cases, fixtures, metrics and the runner
+evals/                                    # generic eval harness (cases live in board repos)
 ```
 
 ## Adding or changing a skill

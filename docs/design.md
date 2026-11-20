@@ -59,19 +59,24 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
 
 ## 5. Evals (D5, D20, D30)
 
-- `evals/run.py` runs each case through headless `claude -p` on a fresh copy of its fixture, **with** and **without**
-  the plugin, 3 runs each (placement and routing are not deterministic), and scores each result.
+- **The harness is generic and lives here** (`evals/`); **cases live in each board repo** (`<board-repo>/evals/cases/`),
+  with the anchors and the pinned commit of that board. Fixtures are built on demand from the board repo's git history,
+  so no board files are copied into any repo.
+- `evals/run.py <board-repo>/evals` runs each case through headless `claude -p` on a fresh copy of its fixture,
+  **with** and **without** the plugin, 3 runs each (placement and routing are not deterministic), and scores each
+  result. Summaries go to the board repo's `evals/results/`.
 - Scores are computed from the files (`evals/metrics.py`), never judged by the model: validity (anchors moved, parts
-  off the board, courtyard overlaps), ratsnest length, ratsnest crossings (a via estimate), decoupling distance; later
-  the gate, via count, teardrop and pour checks.
-- Baselines are the human placements: the source boards as the owner placed them.
-- Fixtures: pendulum and e-foc boards reduced to their anchors, unrouted; later the pendulum schematic with the
-  D-021/S1 defects reintroduced, and a pin-assignment task. Review tasks are graded by hand.
-- Run by hand before each release tag, not in CI (cost). Results go to `evals/results/<date>.json`.
+  off the board, courtyard overlaps, copper added), ratsnest length, ratsnest crossings (a via estimate), decoupling
+  distance; later the gate, via count, teardrop and pour checks.
+- The baseline is the human placement: the source board as its owner placed it at the pinned commit.
+- First case: pendulum placement, with its anchors taken from its decisions (the board locks nothing). e-foc's case
+  comes with its migration branch (D27). Later: a schematic case with known defects reintroduced, and a
+  pin-assignment case. Review tasks are graded by hand.
+- Run by hand before each release tag, not in CI (cost).
 
 ## 6. Build order (D26)
 
-1. Eval harness with the pendulum anchors-only fixture.
+1. Eval harness (generic, here) and the pendulum placement case (in its repo).
 2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only).
 3. `pcb-copper` net classes.
 4. `pcb-placement` with its gate and optimizer, then pin assignment.

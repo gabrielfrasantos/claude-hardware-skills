@@ -12,6 +12,7 @@ import unittest
 
 HERE = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import jlc_stock  # noqa: E402
 import project  # noqa: E402
 import scaffold  # noqa: E402
 import trace  # noqa: E402
@@ -79,6 +80,36 @@ class Trace(unittest.TestCase):
         errors = trace.check(d, fw)["errors"]
         self.assertEqual(len(errors), 1)
         self.assertIn("REQ-DRIVE-099", errors[0])
+
+
+class Stock(unittest.TestCase):
+    PARTS = {
+        "C1": dict(componentCode="C1", stockCount=10000, componentLibraryType="base", componentModelEn="CL10B104KB8NNNC",
+                   componentPrices=[{"productPrice": 0.002}], componentSpecificationEn="0603"),
+        "C2": dict(componentCode="C2", stockCount=50, componentLibraryType="expand", componentModelEn="TPS54302DDCR",
+                   componentPrices=[{"productPrice": 0.4}], componentSpecificationEn="SOT-23-6"),
+        "C3": dict(componentCode="C3", stockCount=900, componentLibraryType="expand", componentModelEn="TPS54302DDCR",
+                   componentPrices=[{"productPrice": 0.4}], componentSpecificationEn="SOT-23-6"),
+    }
+
+    def check(self, *rows):
+        return jlc_stock.check_rows(list(rows), boards=5, attrition=0.1, find=self.PARTS.get)
+
+    def test_package_lifecycle_and_alternates(self):
+        ok = dict(lcsc="C1", mpn="CL10B104KB8NNNC", qty="4", footprint="C_0603_1608Metric")
+        report, problems, notes = self.check(ok)
+        self.assertEqual((problems, report[0]["status"], report[0]["package_check"]), (0, "ok", "ok"))
+        wrong = dict(ok, footprint="C_0402_1005Metric")
+        self.assertIn("PACKAGE MISMATCH (chip 0402 vs 0603)", self.check(wrong)[0][0]["status"])
+        eol = dict(ok, lifecycle="NRND")
+        self.assertIn("LIFECYCLE NRND", self.check(eol)[0][0]["status"])
+        single = dict(lcsc="C2", mpn="TPS54302DDCR", qty="1", footprint="SOT-23-6")
+        report, problems, notes = self.check(single)
+        self.assertEqual(problems, 0)
+        self.assertTrue(any("no alternate" in n for n in notes))
+        report, _, notes = self.check(dict(single, alt_lcsc="C3; C404"))
+        self.assertEqual(report[0]["alternates"], {"C3": 900, "C404": None})
+        self.assertFalse(any("no alternate" in n for n in notes))
 
 
 class Scaffold(unittest.TestCase):

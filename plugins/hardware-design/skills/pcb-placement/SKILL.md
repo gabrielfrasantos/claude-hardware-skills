@@ -1,6 +1,6 @@
 ---
 name: pcb-placement
-description: Place the unlocked footprints of a KiCad 10 board around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result against a baseline; then assign the MCU's pins from the placement within what the firmware needs (alternate functions, peripheral instances, EXTI lines) and write the pin map.
+description: Place the unlocked footprints of a KiCad 10 board around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result against a baseline and the assembler's rules (JLCPCB package-pair spacing, edge keep-outs, fiducials, orientation); then assign the MCU's pins from the placement within what the firmware needs (alternate functions, peripheral instances, EXTI lines; boot and SWD pins reserved) and write the pin map.
 ---
 
 # PCB placement (KiCad 10+)
@@ -41,7 +41,7 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
 |---|---|
 | ratsnest length of every signal net (Manhattan MST of its pads; ground and poured nets are planes and left out) | rotation and side: both are kept; rotate parts yourself, then `--refine` |
 | decoupling capacitor to the nearest IC pad on its supply, weighted × 2 | which IC pin a capacitor belongs to beyond "nearest on its net" |
-| courtyard overlaps, the board outline inset by `--edge-mm` (0.5), footprint keep-outs | assembly spacing beyond courtyards; DRC custom rules; thermal, mechanical, RF or hot-loop intent |
+| courtyard overlaps, the board outline inset by `--edge-mm` (0.5), footprint keep-outs | the assembler's package-pair spacing and edge keep-outs (the gate checks them, §4.1; fix with `--refine` or by hand); DRC custom rules; thermal, mechanical, RF or hot-loop intent |
 | | ratsnest crossings (the gate measures them; the cost does not) |
 
 ## 4. Gate
@@ -55,7 +55,22 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
 | `crossings` | crossings between straight ratsnest edges of different nets: an estimate of the vias routing will need |
 | `decap_p90_mm` | 90th percentile of the decoupling-capacitor distances |
 
-Valid = the first three are 0. With `--baseline`, ratios for the last three. The gate is **report-only** until the evals set its limits (docs/design.md D25: no worse than the human baseline + 10 % on ratsnest and crossings); `--enforce` exits 1 when invalid or above `--limit`.
+Valid = the first three are 0. With `--baseline`, ratios for the last three. The gate is **report-only** until the evals set its limits (docs/design.md D25: no worse than the human baseline + 10 % on ratsnest and crossings); `--enforce` exits 1 when invalid, above `--limit`, or on assembly spacing.
+
+### 4.1 Assembly checks (`dfa.py`, also run by `gate`)
+
+From the assembler's profile, `pcb-design-rules/profiles/assembly/<name>.json` (`--assembly jlcpcb` by default, `none` to skip):
+
+| Check | Kind | Meaning |
+|---|---|---|
+| `assembly_spacing` | hard with `--enforce` | parts on the same side closer than the minimum for their two package classes. JLCPCB's table goes from 0.15 mm (0201/0402 pairs) to 1 mm for any chip next to a QFN and 2 mm between BGAs [JLC-SPACING]. Measured pad copper to pad copper: JLCPCB doesn't say which edges its table uses, and copper is at least as strict as bodies for chips and leaded parts. Pairs of two locked parts are the owner's |
+| decoupling exceptions | info | a capacitor with one pad on ground and the other on a net of the IC it sits next to, closer than the table. The MCU vendor's "as close to the pins as possible" is electrical and wins over inspection spacing (`mcu-circuit-design` §2); the report lists them so the owner sees the trade |
+| `edge_keepout` | soft | MLCCs, crystals and BGAs with copper less than 3 mm from the board edge: depaneling stress cracks them; JLCPCB calls 3–5 mm safe, more near V-cuts [JLC-SMT] |
+| `fiducials_missing` | soft | populated sides with fewer than 3 fiducials (1 mm pad, 2 mm mask opening, at least 3.35 mm from the edge). JLCPCB requires edge rails (≥ 5 mm) and fiducials for standard assembly [JLC-RAILS]: put them on the board or on rails |
+| `orientation_mixed` | soft | polarized parts (diodes, LEDs, polarized capacitors) outside their two most common orientations, and ICs outside their most common one: one orientation per class makes inspection easier [JLC-SMT] |
+| unclassified | info | parts whose package isn't in the table (connectors, SOD, electrolytics, custom lands): not spacing-checked |
+
+Measured 2026-11-20: on e-inverted-pendulum, 1 spacing violation (R701 0.68 mm from a QFN), 6 decoupling exceptions at the two QFNs, no fiducials, 14 orientation outliers; on e-foc, no spacing violation, no fiducials, 6 orientation outliers.
 
 **Measured** on the e-inverted-pendulum board (161 parts parked, 84 anchors: connectors, holes, the three vendor copies; evals fixture), against the owner's placement:
 
@@ -93,7 +108,7 @@ Hardware is hard to change and firmware is easy, so **the hardware picks the pin
    ```bash
    python3 scripts/pins.py assign hardware/board/board.kicad_pcb --mcu U301 --needs pin-needs.txt --out pinmap.txt
    ```
-   Each function's target is the centroid of its net's other pads. Functions go to free I/O pads by minimum total distance (Hungarian assignment), over every choice of peripheral instances, with each signal and each EXTI line used once. Pads on other nets (supplies, crystal, debug not in the needs) are never used. The pin map is plain text (function, pin, pad, signal, package side, distance) and states the instances chosen and the current assignment's distance. When nothing fits, it lists each function's candidate pins, which usually shows the conflict (e.g. two encoders needing the only free timer).
+   Each function's target is the centroid of its net's other pads. Functions go to free I/O pads by minimum total distance (Hungarian assignment), over every choice of peripheral instances, with each signal and each EXTI line used once. Pads on other nets (supplies, crystal, debug not in the needs) are never used, and neither are **reserved pins**: boot-strap pins (BOOT in the pin's name or alternates) and the SWD pins (SWDIO, SWCLK), whose level at reset and during debug matters. Name one exactly in the needs (`PA13`) or pass `--allow-reserved` to use it. Check the other pins with special reset states yourself (JTAG pins with pull-ups, pins sampled at reset): the MCU's safe-state table in `mcu-circuit-design` lists them. The pin map is plain text (function, pin, pad, signal, package side, distance) and states the instances chosen and the current assignment's distance. When nothing fits, it lists each function's candidate pins, which usually shows the conflict (e.g. two encoders needing the only free timer).
 5. **Write it back:** connect the MCU pins in the schematic as the map says (with schgen, edit the design file), rebuild, *Update PCB from Schematic*, and log the pin-map freeze as a decision. Give `pinmap.txt` to the firmware.
 6. **Check** any assignment against the needs: `pins.py check board.kicad_pcb --mcu U301 --needs pin-needs.txt` exits 1 if a function sits on a pin without its signal, a group mixes instances, or a signal is on two pins.
 
@@ -109,6 +124,7 @@ Measured on e-inverted-pendulum (37 functions, STM32WB55 VFQFPN68, 47 free I/O p
 - [ ] Anchors and intent locked; free areas fenced with footprint keep-outs.
 - [ ] `render` read before and after; seeds compared; the domain skills' placement rules checked by eye.
 - [ ] `gate` valid; ratios against the last accepted placement reported.
+- [ ] Assembly: no spacing violation; decoupling exceptions accepted by the owner; brittle parts away from edges; fiducials on the board or rails ordered; polarized parts and ICs oriented consistently.
 - [ ] Owner reviewed the renders; the accepted placement's JSON kept as the next baseline.
 - [ ] Pin needs written from the firmware; `assign` run after placement; map written back to the schematic and logged as a decision; `check` passes.
 
@@ -117,4 +133,7 @@ Measured on e-inverted-pendulum (37 functions, STM32WB55 VFQFPN68, 47 free I/O p
 - docs/design.md D7, D15, D25 (working agreement, optimizer then refinement, report-only gate).
 - `power-pcb-layout` §1 (anchors), `pcb-design-rules` §5 (0.05 mm grid), `mcu-circuit-design` §2 (decoupling).
 - Measurements in §4 and §5: `place.py` and `pins.py` on embedded-pro/e-inverted-pendulum-hardware at 51a4bcf (the evals fixture for placement), 2026-11-20.
+- [JLC-SPACING] JLCPCB, *Minimum spacing for SMD components* (package-pair table). https://jlcpcb.com/help/article/minimum-spacing-for-smd-components
+- [JLC-RAILS] JLCPCB, *How to add edge rails/fiducials for PCB assembly order*. https://jlcpcb.com/help/article/how-to-add-edge-rails-fiducials-for-pcb-assembly-order
+- [JLC-SMT] JLCPCB, *Top 10 PCB Design Tips for High-Quality SMT Soldering* (orientation, edge keep-outs, thermal reliefs). https://jlcpcb.com/blog/pcb-design-tips-to-improve-smt-soldering-quality
 - ST, STM32_open_pin_data (github.com/STMicroelectronics/STM32_open_pin_data): the source of KiCad's STM32 symbols' alternate functions.

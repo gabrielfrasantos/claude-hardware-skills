@@ -2,7 +2,7 @@
   "name": "hardware-design",
   "version": "0.1.0",
   "displayName": "Hardware Design",
-  "description": "Skills and tools for KiCad 10 hardware design, every rule sourced: project and requirements, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly rules with layout-quality gates, power, RF, high-speed and interface layout, and copying vendor reference layouts",
+  "description": "Skills and tools for KiCad 10 hardware design, every rule sourced: project and requirements, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly rules with layout-quality gates, power, RF, high-speed and interface layout, copying vendor reference layouts, and design review of schematics and PCBs with a reviewer agent",
   "author": {
     "name": "Gabriel Santos",
     "url": "https://github.com/gabrielfrasantos"
@@ -24,6 +24,7 @@
     "schematic",
     "placement",
     "rf",
-    "claude-code"
+    "claude-code",
+    "design-review"
   ]
 }

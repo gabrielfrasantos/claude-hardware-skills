@@ -1,6 +1,6 @@
 # Design: from rules library to workflow and generation
 
-Status: agreed 2026-11-20 (design session, decisions D1–D30 below; D31–D35 after the best-practices audit, §8). This file is the plan the skills and tools are built
+Status: agreed 2026-11-20 (design session, decisions D1–D30 below; D31–D36 since, §8). This file is the plan the skills and tools are built
 against. Change it with a new decision, not silently.
 
 ## 1. Goal
@@ -99,5 +99,6 @@ The audit (`docs/research/best-practices-audit.md`) checked the skills against p
 | D33 Teardrops | Hard on vias and plated-hole pads, soft on SMD pads; off by default for the `DIFF_*` and `RF_*` classes. |
 | D34 Standards | Clearance by voltage takes the larger of IPC-2221C Table 6-1 B2 and A7 (pads are terminations). The current fit is cited as the historical IPC-2221 chart fit, superseded by IPC-2152, one fit for every layer. Vias at 18 µm plating. |
 | D35 Vendor licences | Data derived from TI design files stays in the gitignored `reference/` by default; ST's OPLA allows distribution for ST-based boards. The pendulum's committed TI-derived copper is the owner's decision. |
+| D36 Review | Reviewing is a skill of its own (`design-review`): `review.py` runs every scripted check on any KiCad 10 project into one findings file, the schematic checks run on the netlist (board + schematic symbols offline, or KiCad's netlist), and a plugin-level `board-reviewer` agent triages the findings and reviews against the datasheets from the netlist, not from PDF pictures. Review quality is measured by seeding defects into real boards (`evals/review_defects.py`). |
 
 Built from the audit's gaps, in a separate PR: JLCPCB package-pair assembly spacing, edge keep-outs, fiducials and orientation in the placement gate; a footprint-vs-LCSC-package check; BOM lifecycle in `jlc_stock.py`.

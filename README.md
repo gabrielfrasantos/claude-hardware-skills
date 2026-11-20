@@ -32,7 +32,8 @@ flowchart LR
   P --> N[Net classes, fab rules<br/>pcb-copper, pcb-design-rules]
   N --> L[Routing rules<br/>power / RF / high-speed / interface]
   L --> G[Gates: DRC, geometry, copper, assembly]
-  G --> F[Fab and assembly files<br/>hardware-project]
+  G --> RV[Design review<br/>design-review + board-reviewer]
+  RV --> F[Fab and assembly files<br/>hardware-project]
   V[Vendor reference layouts<br/>reference-block] -.-> P
 ```
 
@@ -43,6 +44,12 @@ flowchart LR
 | Skill | Use it to |
 |---|---|
 | [`hardware-project`](plugins/hardware-design/skills/hardware-project/SKILL.md) | Start and run a board repo: scaffold (CLAUDE.md, requirements traced to firmware, decisions, phase gates, reviewer agent), check traceability, and export review, BOM, JLCPCB stock (packages, lifecycle, second sources), fab, release packages and visual diffs |
+
+### Review
+
+| Skill | Use it to |
+|---|---|
+| [`design-review`](plugins/hardware-design/skills/design-review/SKILL.md) | Review any KiCad 10 schematic or PCB: one command runs every scripted check into a findings file (decoupling, pull-ups, MCU strap and power pins, voltage ratings, diode and capacitor orientation, connector ESD, divider ranges, ERC, fab and geometry gates, net classes, assembly, vendor blocks). The `board-reviewer` agent then triages each finding and checks each IC against its datasheet. A seeded-defect eval measures how much a review catches |
 
 ### Schematic and circuits
 
@@ -115,7 +122,7 @@ The tests need none of KiCad, ngspice or the network.
 - **Real boards.** The tools are measured on the boards above (placement against the owner's, schematic generation
   byte-identical, a vendor block round trip byte-identical); each skill says what was measured and what wasn't.
 - **Evals.** [`evals/`](evals/README.md) runs a board repo's eval cases with and without the plugin and scores them
-  against the owner's own work.
+  against the owner's own work, and plants known defects in a real board to score a review.
 
 ## Repository layout
 
@@ -123,6 +130,7 @@ The tests need none of KiCad, ngspice or the network.
 .claude-plugin/marketplace.json        marketplace "hardware-skills"
 plugins/hardware-design/
 ├── .claude-plugin/plugin.json         plugin "hardware-design"
+├── agents/board-reviewer.md           the reviewer agent (read-only)
 └── skills/<skill>/                    SKILL.md, plus scripts/ and profiles/ where the skill has tools
 docs/design.md                         the plan and its decisions (D1, D2, ...)
 docs/research/                         audits and research notes

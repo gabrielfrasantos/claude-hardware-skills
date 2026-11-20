@@ -1,13 +1,13 @@
 ---
 name: pcb-placement
-description: Place the unlocked footprints of a KiCad 10 board around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result on validity and ratsnest length and crossings against a baseline; propose anchor moves for the owner without applying them.
+description: Place the unlocked footprints of a KiCad 10 board around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result against a baseline; then assign the MCU's pins from the placement within what the firmware needs (alternate functions, peripheral instances, EXTI lines) and write the pin map.
 ---
 
 # PCB placement (KiCad 10+)
 
 Use this skill after *Update PCB from Schematic*, when the owner has placed and locked the anchors and the rest of the parts wait in a staging area, and whenever a placement needs judging before routing. Bad placement is what makes routing need too many vias; fix it here, not in the router.
 
-The script is `scripts/place.py` (needs `pip install shapely numpy matplotlib`). It reads and writes the `.kicad_pcb` directly, shares the board parser of `pcb-design-rules`, and never moves a locked footprint.
+The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assignment); they need `pip install shapely numpy scipy matplotlib`. It reads and writes the `.kicad_pcb` directly, shares the board parser of `pcb-design-rules`, and never moves a locked footprint.
 
 ## 1. Working agreement
 
@@ -67,9 +67,42 @@ Valid = the first three are 0. With `--baseline`, ratios for the last three. The
 
 Better on every number, and still not acceptable as it stands: it scattered the owner's LED rings and put parts in the motor-bracket strip, which that board protects with a DRC rule, not a footprint keep-out. That is §1 in practice.
 
-## 5. Pin assignment
+## 5. Pin assignment (`pins.py`)
 
-Choosing MCU pins from the side that faces each cluster (docs/design.md §4) builds on this placement. It is the next part of this skill.
+Hardware is hard to change and firmware is easy, so **the hardware picks the pins**, within what the firmware needs (docs/design.md D8, §4). The order:
+
+1. The schematic connects the MCU through **function nets** (`IMU_SCK`, `ENC_L_A`) whose MCU pin is still open, or through the current pins if the board already has them.
+2. Place the anchors and the clusters (§2). The MCU is usually an anchor.
+3. Write the firmware's needs as text, one function per line, named like its net:
+   ```
+   # function     signals                               group
+   DRV_AIN1       TIM1_CH1|TIM1_CH2|TIM1_CH3|TIM1_CH4    any free TIM1 channel
+   IMU_SCK        SPI{n}_SCK                            imu   one SPI instance for the bus
+   IMU_MISO       SPI{n}_MISO                           imu
+   IMU_MOSI       SPI{n}_MOSI                           imu
+   ENC_L_A        TIM{t}_CH1|LPTIM{t}_IN1               enc_l a TIM pair or an LPTIM pair
+   ENC_L_B        TIM{t}_CH2|LPTIM{t}_IN2               enc_l
+   IMU_INT        EXTI                                  any pin; its interrupt line must be free
+   VBAT_SENSE     ADC1_IN*
+   DRV_NFAULT~2   EXTI                                  a second pin on the same net
+   SWDIO          SYS_JTMS-SWDIO
+   BOOT0          PH3                                   an exact pin
+   ```
+   The `pins.py` docstring has the full syntax. Signal names are the MCU symbol's alternate functions: KiCad's STM32 symbols carry all of them (from ST's STM32_open_pin_data), and `pins.py` reads them from the symbol embedded in the project's schematic. For other vendors, pass `--pin-data` with a CSV of `number,name,alternates`, extracted once from the datasheet with its page cited.
+4. **Assign:**
+   ```bash
+   python3 scripts/pins.py assign hardware/board/board.kicad_pcb --mcu U301 --needs pin-needs.txt --out pinmap.txt
+   ```
+   Each function's target is the centroid of its net's other pads. Functions go to free I/O pads by minimum total distance (Hungarian assignment), over every choice of peripheral instances, with each signal and each EXTI line used once. Pads on other nets (supplies, crystal, debug not in the needs) are never used. The pin map is plain text (function, pin, pad, signal, package side, distance) and states the instances chosen and the current assignment's distance. When nothing fits, it lists each function's candidate pins, which usually shows the conflict (e.g. two encoders needing the only free timer).
+5. **Write it back:** connect the MCU pins in the schematic as the map says (with schgen, edit the design file), rebuild, *Update PCB from Schematic*, and log the pin-map freeze as a decision. Give `pinmap.txt` to the firmware.
+6. **Check** any assignment against the needs: `pins.py check board.kicad_pcb --mcu U301 --needs pin-needs.txt` exits 1 if a function sits on a pin without its signal, a group mixes instances, or a signal is on two pins.
+
+Measured on e-inverted-pendulum (37 functions, STM32WB55 VFQFPN68, 47 free I/O pads): `check` passes the board's pin map. With the needs stated as capabilities, `assign` finds a map with 1378 mm total distance against 1465 mm for the current one (−6 %), in under 2 s. The gain is small because that board was placed around its pins. The tool's value is on a new board, where the clusters are placed first.
+
+**Limits:**
+- Distance is straight-line pad to cluster centroid. It does not order pins to avoid crossings within a bus.
+- It does not know which peripherals clash in use: a timer used for PWM is still offered for an encoder on its other channels. Say so in the needs with exact signals.
+- Clock trees, DMA channels and analog domains are the firmware's to confirm.
 
 ## 6. Checklist
 
@@ -77,9 +110,11 @@ Choosing MCU pins from the side that faces each cluster (docs/design.md §4) bui
 - [ ] `render` read before and after; seeds compared; the domain skills' placement rules checked by eye.
 - [ ] `gate` valid; ratios against the last accepted placement reported.
 - [ ] Owner reviewed the renders; the accepted placement's JSON kept as the next baseline.
+- [ ] Pin needs written from the firmware; `assign` run after placement; map written back to the schematic and logged as a decision; `check` passes.
 
 ## 7. References
 
 - docs/design.md D7, D15, D25 (working agreement, optimizer then refinement, report-only gate).
 - `power-pcb-layout` §1 (anchors), `pcb-design-rules` §5 (0.05 mm grid), `mcu-circuit-design` §2 (decoupling).
-- Measurements in §4: `place.py` on the evals fixture of embedded-pro/e-inverted-pendulum-hardware at 51a4bcf, 2026-11-20.
+- Measurements in §4 and §5: `place.py` and `pins.py` on embedded-pro/e-inverted-pendulum-hardware at 51a4bcf (the evals fixture for placement), 2026-11-20.
+- ST, STM32_open_pin_data (github.com/STMicroelectronics/STM32_open_pin_data): the source of KiCad's STM32 symbols' alternate functions.

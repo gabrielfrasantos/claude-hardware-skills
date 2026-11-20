@@ -27,7 +27,7 @@ Measured, not felt: every step is scored by the evals in `evals/` (D5, D30).
 | D13 Shared code | Skills may import from `pcb-design-rules/scripts` (parser, geometry, `kicad-cli` calls). It is the core that becomes `hwkit`. Nothing else is shared across skill folders. |
 | D22 KiCad engine | Read and write `.kicad_pcb` / `.kicad_sch` as S-expressions; `kicad-cli` for DRC, ERC, zone fill and exports. No new `pcbnew` (SWIG) code: it is deprecated since KiCad 9 and goes away. Revisit the IPC API once KiCad 11 runs it headless. Ported pendulum scripts are rewritten to this, not copied. |
 | D28 Dependencies | External packages are allowed (numpy, scipy, ...). |
-| D29 Versioning | Tagged releases (release-please). Board repos' CI pins a tag; interactive sessions use `main`. |
+| D29 Versioning | Tagged releases (release-please). Board repos' CI pins a tag; interactive sessions use `main`. As built: `.github/workflows/release.yml` writes the version into the plugin and marketplace manifests; MIT licence; CI runs the tests, a lint and the plugin validator. |
 
 ## 3. Skills
 

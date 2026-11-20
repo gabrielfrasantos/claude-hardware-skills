@@ -1,0 +1,21 @@
+name: Skill or check request
+description: A new skill, a new check in a gate, or a topic a skill doesn't cover.
+title: "feat(<skill>): "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What you're designing and what's missing
+    validations:
+      required: true
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: The vendor documents, standards or fab pages the rules would come from.
+  - type: textarea
+    id: example
+    attributes:
+      label: Example board
+      description: A public board where it matters, if any.

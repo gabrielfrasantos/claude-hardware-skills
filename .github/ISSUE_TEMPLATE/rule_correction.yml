@@ -1,0 +1,30 @@
+name: Rule correction
+description: A rule, number or citation in a skill is wrong, outdated or unsourced.
+title: "fix(<skill>): "
+labels: ["rule-correction"]
+body:
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: Skill and section (e.g. pcb-copper §2), or file and line.
+    validations:
+      required: true
+  - type: textarea
+    id: claim
+    attributes:
+      label: What the skill says
+    validations:
+      required: true
+  - type: textarea
+    id: source
+    attributes:
+      label: What the source says
+      description: The primary source (datasheet, app note, standard, fab page) with document ID, revision, section and a link. Quote no more than a sentence.
+    validations:
+      required: true
+  - type: textarea
+    id: impact
+    attributes:
+      label: Impact
+      description: What goes wrong on a board that follows the current rule.

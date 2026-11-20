@@ -1,0 +1,38 @@
+name: ci
+
+# Runs every skill's self-tests (no KiCad needed: the tests use synthetic KiCad 10 files) and validates the
+# plugin and marketplace manifests. Third-party actions are pinned to a full commit SHA, with the version in a
+# trailing comment.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install Python packages
+        run: |
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt pytest ruff
+      - name: Run the tests
+        run: .venv/bin/python -m pytest -q
+      - name: Lint (pyflakes rules, via ruff)
+        run: .venv/bin/ruff check --select F plugins evals
+
+  validate:
+    name: Plugin manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Install Claude Code
+        run: npm install --global @anthropic-ai/claude-code
+      - name: Validate the marketplace and plugin
+        run: claude plugin validate .

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Self-test for the hardware-project scripts. Run: python3 test_project.py (no KiCad or network needed)."""
 import contextlib
+import importlib.util
 import io
 import json
 import os
@@ -146,11 +147,8 @@ class Scaffold(unittest.TestCase):
 class Scripts(unittest.TestCase):
     def test_help_runs_without_kicad(self):
         names = ["export_review", "export_jlcpcb", "export_release", "export_bom", "jlc_stock", "fetch_datasheet"]
-        try:
-            import pymupdf  # noqa: F401
+        if importlib.util.find_spec("pymupdf"):
             names.append("visual_diff")
-        except ImportError:
-            pass
         for name in names:
             r = subprocess.run([sys.executable, str(HERE / f"{name}.py"), "--help"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, f"{name}: {r.stderr[-300:]}")

@@ -1,0 +1,8 @@
+# Python packages the skills' scripts and tests use. KiCad 10 (kicad-cli) and ngspice are installed separately.
+shapely>=2.0
+numpy
+scipy
+matplotlib
+# Optional: hardware-project's visual_diff.py
+# pymupdf
+# pillow

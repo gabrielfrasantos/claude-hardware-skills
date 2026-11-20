@@ -46,7 +46,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 
 - **Standoff** $V_{RWM} ≥ V_{abs}$, so the TVS does not conduct in normal operation.
 - **Every part on the bus must survive the clamping voltage** $V_C$ at the expected pulse current, not only the standoff: regulator VIN, driver supply pin, bridge and power-path $V_{DS}$, capacitor ratings.
-  - Example: SMBJ15A, $V_{RWM}$ 15 V, $V_C$ 24.4 V at rated pulse current [LF-SMBJ] (ratio about 1.6), against a 30 V lowest absolute maximum on the bus.
+  - Example: SMBJ15A, $V_{RWM}$ 15 V, $V_C$ 24.4 V at its rated peak pulse current $I_{PP}$ (10/1000 µs waveform) [LF-SMBJ] (ratio about 1.6), against a 30 V lowest absolute maximum on the bus. At smaller currents $V_C$ is lower; at a longer or larger pulse than the rating, the part fails.
   - Read each TVS's own table; the ratio is a *rule of thumb* across families.
 - **A bus TVS does not protect the switching FETs from their own ringing.** With $V_{RWM}$ above the bus, $V_C$ usually lands above a tightly rated FET's $V_{(BR)DSS}$. The FET's margin against switching overshoot is held by the commutation loop and the HF bypass (`power-pcb-layout` §3.1), the gate drive (§8) and, if needed, a snubber (§12). Example: e-foc's 50 V bus, 60 V FETs and a 51 V-standoff TVS.
 - **Energy:** the TVS absorbs what the bulk cannot during regeneration with the input path open (§9). Compare with its pulse rating at the real pulse width.
@@ -78,7 +78,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 ## 6. Rails: buck and LDO
 
 - **Buck input:** recommended VIN maximum ≥ $V_{abs}$, absolute maximum ≥ $V_C$ (§3). A regulator that only meets the nominal bus fails at the first clamp event.
-- **Inductor:** ripple 20–40 % of the maximum output current as a starting point [SLVA477B], unless the converter's datasheet asks otherwise (some need a minimum ripple for slope compensation). Check $I_{sat}$ ≥ the peak, and say what a hard short does.
+- **Inductor:** ripple 20–40 % of the maximum output current as a starting point [SLVA477], unless the converter's datasheet asks otherwise (some need a minimum ripple for slope compensation). Check $I_{sat}$ ≥ the peak, and say what a hard short does.
 - **Capacitors:** use the **effective** capacitance at the DC bias, not the nominal, against the datasheet's minimum for loop stability. Input-capacitor ripple per [SLTA055].
 - **Near a radio:** a fixed frequency (forced PWM) keeps spurs at known frequencies at every load (`rf-layout`).
 - **LDO:**
@@ -117,7 +117,14 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 ## 8. Gate drive and dead time
 
 - **High-side supply:**
-  - **Bootstrap:** the low side must conduct every period to recharge it, so duty stays below 100 %, and a stalled rotor held in one state can starve it. $C_{BOOT} ≥ Q_{G,total}/ΔV_{BOOT}$, with $Q_{G,total}$ including the diode's $Q_{rr}$ and the leakage over the longest on-time [SLUA887]. The diode is fast, rated ≥ the bus, low $Q_{rr}$. Placement is in `power-pcb-layout` §3.2.
+  - **Bootstrap:** the low side must conduct every period to recharge it, so duty stays below 100 %, and a stalled rotor held in one state can starve it. Size it per [SLUA887A] §3:
+    - $C_{BOOT} ≥ 10 \cdot C_g$, with $C_g = Q_g/(V_{DD} − V_{F,boot})$ (Eq. 1–2);
+    - and $C_{BOOT} ≥ Q_{total}/ΔV_{HB}$ (Eq. 3), with $Q_{total} = Q_G + I_{HBS} \cdot D_{max}/f_{sw} + I_{HB}/f_{sw}$ (gate charge, HB leakage over the on-time, HB quiescent current) and $ΔV_{HB} = V_{DD} − V_{DH} − V_{HBL}$: the supply minus the diode drop minus the driver's HB UVLO falling threshold;
+    - $C_{VDD} ≥ 10 \cdot C_{BOOT}$ (Eq. 5), so the gate supply doesn't sag at each recharge;
+    - low-ESR MLCCs rated about $2 \cdot V_{DD}$;
+    - a Schottky or fast-recovery diode, low forward drop and junction capacitance, rated above the bus with margin. SLUA887A has no $Q_{rr}$ term; a slow diode's reverse recovery shows up as overshoot and UVLO trips, which is why it asks for a fast one.
+
+    Placement is in `power-pcb-layout` §3.2.
   - **Charge pump:** allows 100 % duty. Its flying and storage capacitors are rated for the bus plus the pump voltage (driver datasheet), and its current budget limits $Q_g \cdot f_{PWM}$.
 - **Edge rate:** switching time ≈ $Q_{gd}/I_G$ [SLUP169].
   - Faster edges cut switching loss but ring and couple; at tens of kHz switching loss is small, so drive gently.
@@ -133,9 +140,9 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 
 ## 9. Bus capacitors and regeneration
 
-- **HF bypass at every half-bridge:** 100 nF–1 µF low-ESL MLCC across HS drain and LS source, closest to the FETs. Rate class-II MLCCs well above the bus and take the capacitance after DC-bias derating (*rule of thumb*: about 2× the bus voltage).
+- **HF bypass at every half-bridge:** 100 nF–1 µF low-ESL MLCC across HS drain and LS source, closest to the FETs. For class-II MLCCs, take the effective capacitance from **the part's own DC-bias curve** at the bus voltage, then allow for further drift: under constant bias, X7R capacitance keeps falling over time, by more than 20 % in 1000 h at 40 % of rated voltage for most parts tested [VISHAY-BIAS]. A rating of about 2× the bus is only a screening default (*rule of thumb*; TI gives 2× for bootstrap capacitors [SLUA887A]); the curve decides.
 - **Bulk sized for ripple current**, not only capacitance:
-  - **H-bridge, all ripple in the capacitor:** at most $I_{bus}\sqrt{D(1−D)}$ [SLTA055].
+  - **H-bridge, all ripple in the capacitor:** at most $I_{bus}\sqrt{D(1−D)}$ *(derived: SLTA055 gives this form for a buck converter's input capacitor [SLTA055]; an H-bridge drawing the same pulsed current from the bus sees the same RMS)*.
   - **Three-phase inverter:** the RMS capacitor current is a closed form in modulation index, phase-current amplitude and power factor [KOLAR]. Use it, or simulate (`circuit-simulation`).
   - The source and the MLCCs share the ripple, so simulate the split. Compare the result with the capacitor's ripple rating at $f_{PWM}$ and temperature.
 - **Electrolytic life** doubles for every 10 °C its temperature drops [WE-SN008]. Use the maker's life model with core temperature and voltage derating [CDE]. Ripple heats it, so keep it away from FETs and shunts.
@@ -179,11 +186,12 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 
 ## 12. Snubbers and thermal
 
-- **RC snubber, when layout and gate drive are not enough** [AN11160]:
-  1. Measure the switch-node ringing frequency.
-  2. Add a known capacitance to find the loop's $L$ and $C$.
-  3. Choose $R_S = \sqrt{L/C}$ for damping of 1, and $C_S$ a few times the loop capacitance.
-  4. Check the resistor's dissipation, which grows with $C_S \cdot V_{bus}^2 \cdot f_{PWM}$.
+- **RC snubber, when layout and gate drive are not enough** [AN11160 rev 3.1]:
+  1. Measure the switch-node ringing frequency $f_0$ without a snubber.
+  2. Add a known capacitor $C_{add}$ across the FET and measure the new frequency $f_1$. With $x = f_0/f_1$: loop capacitance $C_{LK} = C_{add}/(x^2 − 1)$ and inductance $L_{LK} = 1/((2\pi f_0)^2 C_{LK})$.
+  3. Start with $C_S$ = 1–2 × $C_{LK}$. Damping is $ζ = R_S/(2 Z_0)$ with $Z_0 = \sqrt{L_{LK}/C_S}$; aim for ζ between 0.5 and 1, i.e. $Z_0 ≤ R_S ≤ 2 Z_0$; AN11160's optimum is $R_S ≈ 1.5\,Z_0$.
+  4. Keep $R_S C_S$ below a tenth of the shortest on-time, so the snubber discharges every period.
+  5. Size the resistor for $P ≈ f_{sw}(½ L_{LK} I_{RM}^2 + ½ C_S V_{bus}^2)$, with $I_{RM}$ the peak reverse-recovery current. The capacitor term grows with $C_S$: that is the trade against peak voltage.
 
   Leave the footprints; fit the values on the bench.
 - **Thermal:** $T_J = T_A + P \cdot R_{θJA}$, with $R_{θJA}$ from the datasheet's copper-area curves for the copper you will actually lay out, and $R_{DS(on)}$ at temperature. Exposed pads need the datasheet's via pattern (`power-pcb-layout` §3.7). Keep electrolytics, references, crystals and the IMU away from heat. Verify with a thermal soak at bring-up.
@@ -192,12 +200,11 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 
 | Item | Status | To close |
 |---|---|---|
-| Steady bus ≤ 80 % of $V_{(BR)DSS}$ | *rule of thumb*; IPC-9592B covers derating (not read here) | the project's derating policy |
+| Steady bus ≤ 80 % of $V_{(BR)DSS}$ | *rule of thumb*; IPC-9592B §4.4 and Table A-3 set transistor derating (contents seen, values not read) | the project's derating policy, or the purchased IPC-9592B |
 | TVS $V_C ≈ 1.6 × V_{RWM}$ | example of one family (SMBJ15A [LF-SMBJ]) | read each TVS's table |
-| MLCC bypass rated about 2× the bus | *rule of thumb* | the MLCC's DC-bias curve |
-| Snubber $C_S$ "a few times" the loop capacitance | from the method of [AN11160] | bench tuning |
+| MLCC bypass rated about 2× the bus | screening default only; 2× is TI's figure for bootstrap capacitors [SLUA887A] | the MLCC's DC-bias curve plus bias-aging drift [VISHAY-BIAS] |
 | Sustained regeneration needs a limit or chopper | *rule of thumb* | the source's charge limits |
-| Inductor ripple 20–40 % | starting point [SLVA477B]; some converters need a minimum | the converter's datasheet |
+| Inductor ripple 20–40 % | starting point [SLVA477]; some converters need a minimum | the converter's datasheet |
 
 ## 14. Checklist
 
@@ -219,15 +226,16 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 ## 15. References
 
 - [SLVA139] TI, *Reverse Current/Battery Protection Circuits*.
-- [SLUA887] TI, *Bootstrap Circuitry Selection for Half-Bridge Configurations*.
+- [SLUA887A] TI, *Bootstrap Circuitry Selection for Half-Bridge Configurations*, rev A (Sep 2023): §3.1 Eq. 1–3, §3.2 Eq. 5, §3.3 diode. https://www.ti.com/lit/SLUA887
+- [VISHAY-BIAS] Vishay, *Time-dependent capacitance drift of X7R MLCCs exposed to constant DC bias voltage* (0603 100 nF 50 V, 1000 h, four makers). https://www.vishay.com/docs/45263/timedepcapdrix7rmlccexptoconstdcbiasvolt.pdf
 - [SLUP169] TI, *Design and Application Guide for High Speed MOSFET Gate Drive Circuits*.
 - [SLTA055] TI, *Input and Output Capacitor Selection*.
-- [SLVA477B] TI, B. Hauke, *Basic Calculation of a Buck Converter's Power Stage* (2015): inductor ripple estimate 20–40 % of the maximum output current. The same starting point appears in TI datasheets, e.g. LM76002 (SNVSAK0A).
-- [AN11160] Nexperia (formerly NXP), *Designing RC snubbers*, rev. 3.1 (2024).
+- [SLVA477] TI, B. Hauke, *Basic Calculation of a Buck Converter's Power Stage* (rev B, 2015): inductor ripple estimate 20–40 % of the maximum output current. The same starting point appears in TI datasheets, e.g. LM76002 (SNVSAK0A).
+- [AN11160] Nexperia (formerly NXP), *Designing RC snubbers*, rev 3.1 (21 Oct 2024): §2 Eq. 4–11 (limits, damping), §3 Eq. 14–19 (finding $C_{LK}$, $L_{LK}$), §4 Eq. 20–27 (worked example). https://www.mouser.lt/pdfDocs/AN11160.pdf
 - [KOLAR] J. W. Kolar, S. D. Round, "Analytical calculation of the RMS current stress on the DC-link capacitor of voltage-PWM converter systems", *IEE Proc. Electric Power Applications* 153(4), 535–543, 2006.
 - [WE-SN008] Würth Elektronik, SN008, *Expected Lifetime of Aluminum Electrolytic and Aluminum Polymer Capacitor*.
 - [CDE] Cornell Dubilier, aluminum electrolytic capacitor application guide and life calculators (life = $L_b \cdot M_v \cdot 2^{(T_{max}−T_{core})/10}$).
 - [LF-SMBJ] Littelfuse, SMBJ series TVS datasheet.
 - [LF-FUSE] Littelfuse, *Fuseology* selection and design guides: breaking capacity (interrupting rating) and the maximum available fault current.
-- IPC-9592B, *Requirements for Power Conversion Devices for the Computer and Telecommunications Industries* (derating; not read for this skill).
+- IPC-9592B, *Requirements for Power Conversion Devices for the Computer and Telecommunications Industries* (Nov 2012): §4.4 derating guidelines, Table A-3 diodes and transistors (contents only: https://www.electronics.org/TOC/IPC-9592B.pdf).
 - Board examples: embedded-pro/e-foc-hardware `docs/foc-hardware-design-guide.md` and embedded-pro/e-inverted-pendulum-hardware `docs/robot-hardware-design-guide.md`, `simulation/REPORT.md`.

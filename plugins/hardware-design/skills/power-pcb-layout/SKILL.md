@@ -92,18 +92,17 @@ Identify each converter's **high-di/dt loop** and make it the smallest physical 
 
 ### 3.5 High-current copper
 - Use **pours, not tracks**. Duplicate them on several layers and stitch them with via arrays at every transition and along the length.
-- Size them with IPC-2152 (more realistic) or IPC-2221 (conservative). IPC-2221: $I = k \cdot \Delta T^{0.44} \cdot A^{0.725}$, with A in mil² and k = 0.048 external, 0.024 internal. 1 oz = 35 µm = 1.378 mil.
+- Size them with IPC-2152, which replaced the IPC-2221 current charts [IPC-2152]. Where a formula is needed, use the fit to the historical IPC-2221 external chart, $I = 0.048 \cdot \Delta T^{0.44} \cdot A^{0.725}$ with A in mil², **on every layer** with that layer's own copper thickness. IPC-2152 has one chart for internal and external conductors, and the old internal factor (k = 0.024) was not based on tests [PCDF-2152]. 1 oz = 35 µm = 1.378 mil. `pcb-copper` computes the widths per net class.
 
   ```python
-  def width_mm(I, dT=10, oz=1.0, internal=False):
-      k = 0.024 if internal else 0.048
-      area_mil2 = (I / (k * dT ** 0.44)) ** (1 / 0.725)
-      return area_mil2 / (1.378 * oz) * 0.0254
-  # 10 A, 1 oz, 10 °C: external ≈ 7.2 mm, internal ≈ 18.7 mm
+  def width_mm(I, dT=10, copper_um=35):
+      area_mil2 = (I / (0.048 * dT ** 0.44)) ** (1 / 0.725)
+      return area_mil2 / (copper_um / 25.4) * 0.0254
+  # 10 A, 10 °C: 1 oz outer ≈ 7.2 mm; 0.5 oz inner (17.5 µm) ≈ 14.4 mm
   ```
 
-- **Vias:** budget about 1 A continuous per 0.3 mm drill via (25 µm plating) and use at least I/1 A vias at each layer change. More vias cut both resistance and heat.
-- **Necks.** The narrowest point sets the rating: check pad entries, spoke connections and gaps between pours. Connect SMD power pads **solid**. Thermal reliefs on THT pins must have spoke width × count ≥ the required width.
+- **Vias:** a 0.3 mm via with 18 µm plating (JLCPCB's average [JLC-CAP]) carries about 1.4 A at ΔT 10 °C by the same fit *(derived: wall area π·d·t)*. Budget 1 A continuous per via for margin, and use at least I/1 A vias at each layer change. More vias cut both resistance and heat. IPC-2152 Appendix A covers vias.
+- **Necks.** The narrowest point sets the rating: check pad entries, spoke connections and gaps between pours. Connect power-device pads and exposed pads **solid**. Small passives on a pour get **thermal reliefs**: JLCPCB uses four 0.254 mm spokes for most connections, against tombstoning [JLC-SMT]; widen the spokes when the part carries current. Thermal reliefs on THT pins must have spoke width × count ≥ the required width.
 - **Specify inner copper weight** to the fab; many default to 0.5 oz inner.
 - High-current connectors should have copper on all layers and multiple vias per pin.
 
@@ -119,15 +118,19 @@ Identify each converter's **high-di/dt loop** and make it the smallest physical 
 - Keep electrolytics, voltage references, precision dividers and crystals away from hot parts.
 
 ### 3.8 Isolation and clearance
-- **Functional clearance**, IPC-2221 Table 6-1, in mm:
+- **Functional clearance**, IPC-2221C Table 6-1 (Dec 2023, supersedes rev B), in mm. Values from a secondary transcription of rev C [IPC-2221C-T]; check the purchased standard for a product:
 
-  | V (DC/peak) | Internal (B1) | External, uncoated (B2) | External, coated (B4) |
-  |---|---|---|---|
-  | 0–30 | 0.05 | 0.1 | 0.13 |
-  | 31–100 | 0.1 | 0.6 | 0.13 |
-  | 101–150 | 0.2 | 0.6 | 0.4 |
-  | 151–300 | 0.2 | 1.25 | 0.4 |
-  | 301–500 | 0.25 | 2.5 | 0.8 |
+  | V (DC/peak) | Internal (B1) | External, uncoated (B2) | External, solder mask (B4) | External, conformal coat (B5) | Component terminations, uncoated (A7) |
+  |---|---|---|---|---|---|
+  | 0–15 | 0.05 | 0.10 | 0.075 | 0.075 | 0.13 |
+  | 16–30 | 0.05 | 0.10 | 0.075 | 0.075 | 0.25 |
+  | 31–50 | 0.10 | 0.64 | 0.30 | 0.13 | 0.40 |
+  | 51–100 | 0.10 | 0.64 | 0.30 | 0.13 | 0.50 |
+  | 101–150 | 0.20 | 0.64 | 0.80 | 0.40 | 0.80 |
+  | 151–300 | 0.20 | 1.25 | 0.80 | 0.40 | 0.80 |
+  | 301–500 | 0.25 | 2.50 | 1.60 | 0.80 | 1.50 |
+
+  B2 and A7 apply up to 3050 m; B3 and A8 above. Rev B named the uncoated-termination column A6 and the conformal-coat column A5. Pads are terminations, so a net-class clearance (which covers pads and tracks) takes the larger of B2 and A7 (`pcb-copper` does).
 - **Safety isolation** (mains, user-touchable) follows IEC 62368-1 / IEC 60664-1 creepage and clearance, plus the isolator's datasheet. That is a separate, larger requirement. Use slots to gain creepage.
 - **Nothing crosses an isolation gap on any layer**, inner planes and pours included. Only the isolator, the isolated converter, optocouplers and an intended Y-cap may straddle it. Mark the gap on silkscreen.
 
@@ -159,7 +162,7 @@ Identify each converter's **high-di/dt loop** and make it the smallest physical 
 ## 5. Quality bar: "it passes DRC" is not done
 
 Check each item, and fix or report every miss:
-- **Layer-direction discipline.** On 2-layer and outer layers, mostly horizontal on one side and vertical on the other. Use 45° corners only; no acute angles and no random diagonals.
+- **Layer-direction discipline** (house style, `pcb-design-rules` §5). On 2-layer and outer layers, mostly horizontal on one side and vertical on the other. Most tracks run horizontal or vertical; 45° only for corner miters and short escapes, never long diagonal runs. No acute angles (acid traps: the one manufacturing concern among these).
 - **Directness.** Routed length / Manhattan distance ≤ 1.3 for most nets. Flag any net above 1.6.
 - **Via economy.** At most 2 vias per signal connection unless justified. No via left in a pad without a reason, and no via-in-pad without filled/capped vias.
 - **Few segments.** No staircase or jagged segments: merge collinear segments, remove sub-0.5 mm jogs, no stubs or dangling ends.
@@ -210,7 +213,7 @@ Zoom crops on the hot loops, the shunts and the fine-pitch parts. Most layout de
 - [ ] Hot loops minimal, with the HF cap closest; switch-node copper minimal; GND plane unbroken under the loops.
 - [ ] Gate loops short, with gate R and pull-down at the FET; bootstrap parts at the pins.
 - [ ] FB divider and compensation at the IC; sense taken at the regulation point.
-- [ ] High-current pours sized (IPC-2152/2221) per layer; via count per transition ≥ I/1 A; no necks; inner copper weight stated.
+- [ ] High-current pours sized (IPC-2152, or the chart fit per layer) on each layer's copper; via count per transition ≥ I/1 A; no necks; inner copper weight stated; small passives on pours with thermal reliefs.
 - [ ] Kelvin taps from the inner pad edges, routed as pairs; amplifier filter at the amplifier.
 - [ ] Exposed-pad via arrays per datasheet; hot parts at the edge or heatsink; sensitive parts away from heat.
 - [ ] Isolation gaps ≥ the requirement on every layer; nothing crosses; gap marked on silk.
@@ -220,7 +223,12 @@ Zoom crops on the hot loops, the shunts and the fine-pitch parts. Most layout de
 
 ## 8. References
 
-- IPC-2152 (current capacity) and IPC-2221 (Table 6-1 spacing, current formula).
+- [IPC-2152] IPC-2152, *Standard for Determining Current-Carrying Capacity in Printed Board Design* (2009): replaces the IPC-2221 current charts; Fig. 5-1 internal and external conductors; App. A vias. Contents: https://www.electronics.org/TOC/IPC-2152.pdf
+- [PCDF-2152] M. Jouppi, *The New IPC-2152*, Printed Circuit Design & Fab (2009). https://pcdandf.com/pcdesign/index.php/2009-archive-articles/5305-the-new-ipc-2152
+- IPC-2221C, *Generic Standard on Printed Board Design* (Dec 2023): §6.3 Table 6-1. Contents: https://www.electronics.org/TOC/IPC-2221C-TOC.pdf
+- [IPC-2221C-T] *(secondary)* pcb-toolkit `spacing.rs`, transcription of IPC-2221C Table 6-1. https://docs.rs/crate/pcb-toolkit/latest/source/src/spacing.rs
+- [JLC-CAP] JLCPCB, *PCB Manufacturing Capabilities* (18 µm average hole plating). https://jlcpcb.com/capabilities/PCB-capabilities
+- [JLC-SMT] JLCPCB, *Top 10 PCB Design Tips for High-Quality SMT Soldering* (thermal reliefs, orientation, edge keep-outs). https://jlcpcb.com/blog/pcb-design-tips-to-improve-smt-soldering-quality
 - TI SLYT614, *Five steps to a great PCB layout for a step-down converter*.
 - TI SNVA021, *AN-1149 Layout Guidelines for Switching Power Supplies*.
 - Analog Devices AN-136, *PCB Layout Considerations for Non-Isolated Switching Power Supplies*.

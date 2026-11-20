@@ -44,7 +44,7 @@ It writes the files above and **never overwrites** one that exists, so it also f
   - **Source:** a firmware `REQ-*`, a firmware file:line, a skill section, or a `D-xxx`.
   - **Verify:** R (review), S[n] (simulation), B (bring-up) or T (test). Notes go in parentheses: `B (VNA, RSSI)`.
 - **Decisions** (`docs/decisions.md`): `| D-<NNN> | decision | rejected | rationale |`. A changed decision gets a new row, and the old one is marked **Superseded by D-xxx (date)**; it is never edited away.
-- **Phases and gates** (`docs/plan.md`): Phase 0 (requirements, sizing), 1 (schematic), 2 (simulation), 3 (layout), 4 (fab, bring-up). Each gate lists the commands that must pass and ends with the **owner's sign-off**; the next phase does not start before it.
+- **Phases and gates** (`docs/plan.md`): Phase 0 (requirements, sizing), 1 (schematic), 2 (simulation), 3 (layout), 4 (fab, bring-up). Each gate lists the commands that must pass and ends with the **owner's sign-off**; the next phase does not start before it. Two checks sit between gates: after the pin-map freeze in Phase 3, the Phase 1 checks run again (the schematic changed); before ordering, the fab's own DFM report is reviewed and the order options (impedance control, via-in-pad, inner copper, IPC class) match the design. `requirements.md` has a Manufacturing section for the fab, the IPC acceptance class, test access and the EMC and safety standards.
 - **`trace.py`** checks traceability at every gate:
   ```bash
   python3 scripts/trace.py --firmware ../my-firmware

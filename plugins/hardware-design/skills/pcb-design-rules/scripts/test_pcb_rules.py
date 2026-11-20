@@ -73,6 +73,16 @@ class Geometry(unittest.TestCase):
         m = self.metrics(board(via, seg(0, 0, 5, 0), seg(5, 0, 5, 5)))
         self.assertEqual(m["right_angle_corners"], 1)
 
+    def test_diagonals_short_and_few(self):
+        # house style: mostly horizontal or vertical, 45-degree segments short
+        m = self.metrics(board(seg(0, 0, 10, 0), seg(10, 0, 11, 1), seg(11, 1, 11, 11)))
+        self.assertEqual(m["long_diagonals"], 0)
+        self.assertAlmostEqual(m["diagonal_length_pct"], 100 * math.sqrt(2) / (20 + math.sqrt(2)), places=6)
+        m = self.metrics(board(seg(0, 0, 3, 0), seg(3, 0, 6, 3)))           # a 4.2 mm diagonal
+        self.assertEqual(m["long_diagonals"], 1)
+        self.assertGreater(m["diagonal_length_pct"], pcb_rules.GATES["diagonal_length_pct"][1])
+        self.assertEqual(pcb_rules.GATES["long_diagonals"][0], "soft")
+
 
 class Copper(unittest.TestCase):
     def test_crossing_nets_short(self):

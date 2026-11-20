@@ -108,8 +108,19 @@ def _item_edit(text, s, e, enabled):
     return (at, at, _td_block(indent, enabled) + "\n" + indent)
 
 
-def set_teardrops(text, exclude=None):
-    """Teardrops on for every netted copper pad and every via; off for nets matching `exclude` (a regex).
+def class_skip(pro_path, patterns):
+    """net -> True when its net class matches one of the comma-separated wildcard patterns."""
+    pats = [p.strip() for p in (patterns or "").split(",") if p.strip()]
+    if not pats:
+        return None
+    lookup, _ = class_resolver(pro_path)
+    return lambda net: any(fnmatch.fnmatchcase(lookup(net), p) for p in pats)
+
+
+def set_teardrops(text, exclude=None, skip=None):
+    """Teardrops on for every netted copper pad and every via; off for nets matching `exclude` (a regex) and
+    nets for which skip(net) is true (by default the DIFF_* and RF_* classes: teardrops shift a matched line's
+    impedance).
 
     Returns (new text, items changed). KiCad draws the teardrops from these flags (Edit > Edit Teardrops,
     and on later edits); pcb_rules check confirms they exist."""
@@ -120,7 +131,8 @@ def set_teardrops(text, exclude=None):
         m = re.search(r'\n\s*\(net "((?:[^"\\]|\\.)*)"\)', block)
         if not m or not m.group(1):
             return None
-        return not (rx and rx.search(m.group(1)))
+        net = m.group(1).replace("{slash}", "/")
+        return not ((rx and rx.search(m.group(1))) or (skip and skip(net)))
 
     for kind, s, e in _blocks(text, 0, len(text)):
         if kind == "via":
@@ -171,7 +183,7 @@ def roles_for(copper_layers, recorded=None):
 
 def reference_layer(layer, layers, roles):
     """The nearest plane layer (GND or PWR) in the stack, GND on a tie; None if there is none.
-    On 4 layers SIG/GND/PWR/SIG the bottom signals reference the power plane, as in TI's example."""
+    With SIG/GND/PWR/SIG the bottom signals reference the power plane (TI advises against it for fast nets)."""
     i = layers.index(layer)
     best = [(abs(j - i), roles[l] != "GND", l) for j, l in enumerate(layers)
             if j != i and roles.get(l) in ("GND", "PWR")]
@@ -276,9 +288,10 @@ def class_widths(pro_path):
 
 
 # ================================================================================================ report
-def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops=True):
+def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops=True, td_classes="DIFF_*,RF_*"):
     """Copper metrics and examples. board: a pcb_rules.Board (KiCad 10, with .root).
-    teardrops=False (apply --no-teardrops) leaves the two teardrop gates unmeasured."""
+    teardrops=False (apply --no-teardrops) leaves the teardrop gates unmeasured. Nets matching td_exclude (regex)
+    or of a class matching td_classes (comma-separated wildcards) are not expected to have teardrops."""
     if MISSING:
         raise SystemExit(f"copper checks need shapely, numpy and scipy ({MISSING}): pip install shapely scipy, "
                          "or run check with --no-copper")
@@ -286,6 +299,7 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
     roles = roles_for(layers, recorded_roles)
     width_of = class_widths(pro_path)
     rx = re.compile(td_exclude) if td_exclude else None
+    skip = class_skip(pro_path, td_classes)
     zs = zones(board)
     tdz = defaultdict(list)                                  # (net, layer) -> teardrop geometries
     fills = [z for z in zs if not z.get("teardrop")]
@@ -332,11 +346,11 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
     ends = defaultdict(list)                                 # (net, layer) -> track ends with widths
     for s in board.segments:
         ends[(s["net"], s["layer"])] += [((s["x1"], s["y1"]), s), ((s["x2"], s["y2"]), s)]
-    disabled = missing = 0
+    disabled = disabled_smd = missing = 0
     items = [(p, g, p["td"], min(p["w"], p["h"]), p["layers"]) for p, g in pad_geoms] + \
             [(v, g, v["td"], v["d"], v["layers"]) for v, g in via_geoms]
     for it, g, td, size, its_layers in items:
-        if rx and rx.search(it["net"]):
+        if (rx and rx.search(it["net"])) or (skip and skip(it["net"])):
             continue
         for l in its_layers:
             hits = [s for pt, s in ends.get((it["net"], l), ()) if g.buffer(1e-3).contains(Point(pt))]
@@ -345,8 +359,12 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
             where = f"{it.get('ref', 'via')}{('.' + str(it['num'])) if 'num' in it else ''} {it['net']} {l} " \
                     f"({it['x']:.3f}, {it['y']:.3f})"
             if not td["enabled"]:
-                disabled += 1
-                ex["teardrops_disabled"].append(where)
+                if it.get("kind") == "smd":                  # recommended on SMD pads, required on drilled ones
+                    disabled_smd += 1
+                    ex["teardrops_disabled_smd"].append(where)
+                else:
+                    disabled += 1
+                    ex["teardrops_disabled"].append(where)
                 break
             if td["prefer_zone"] and any(f.intersects(g) for f in pours.get((it["net"], l), ())):
                 continue                                     # KiCad uses the zone connection, no teardrop
@@ -355,7 +373,8 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
                 missing += 1
                 ex["teardrops_missing"].append(where)
                 break
-    m["teardrops_disabled"], m["teardrops_missing"] = (disabled, missing) if teardrops else (None, None)
+    m["teardrops_disabled"], m["teardrops_disabled_smd"], m["teardrops_missing"] = \
+        (disabled, disabled_smd, missing) if teardrops else (None, None, None)
 
     # ---- fills: unfilled zones, islands, necks, stitching
     unfilled = [z for z in fills if not z["fills"] and z["net"]]

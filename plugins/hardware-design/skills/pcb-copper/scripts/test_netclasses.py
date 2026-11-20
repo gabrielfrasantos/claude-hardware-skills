@@ -80,7 +80,10 @@ class Sizing(unittest.TestCase):
         self.assertAlmostEqual(s["track_width"], N.width_mm(4, 10, 0.035), places=3)
         self.assertGreater(s["inner_width"], s["track_width"])                # thinner inner copper
         self.assertTrue(s["pour"])                                            # above 3 A on 1 oz (D21)
-        self.assertEqual(s["clearance"], 0.6)                                 # IPC-2221 B2, 31-100 V
+        self.assertEqual(s["clearance"], 0.64)                                # IPC-2221C B2, 31-100 V
+        self.assertEqual(N.clearance_for(24), 0.25)                           # A7 (uncoated terminations) > B2
+        self.assertEqual(N.clearance_for(120), 0.80)
+        self.assertEqual(N.clearance_for(12), 0.13)
         self.assertFalse(N.spec("PWR_1A", design, 0.035, 0.0152, 10)["pour"])
         self.assertEqual(N.spec("SIGNAL", design, 0.035, 0.0152, 10)["track_width"], 0.15)
         with self.assertRaises(SystemExit):

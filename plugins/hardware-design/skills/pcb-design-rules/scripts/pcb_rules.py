@@ -58,17 +58,22 @@ GATES = {
     "clearance_violations": ("hard", 0),      # other copper-safety violations (gaps, holes, edge, mask)
     "below_fab_minimum": ("hard", 0),         # anything under the fab's absolute minimum, whatever the rules say
     "dangling": ("hard", 0),                  # tracks/vias connected at one end only (KiCad re-nets floating copper)
+    "acute_corners": ("hard", 0),             # tracks meeting at < 90 degrees: acid traps, a manufacturing concern
+    # house style (the owner's, D-decision; not an IPC or fab rule): octilinear routing, 45-degree corners,
+    # branches on pads, no jogs
     "any_angle_segments": ("hard", 0),        # segments not on a 0/45/90/135 degree direction
-    "acute_corners": ("hard", 0),             # tracks meeting at < 90 degrees
     "right_angle_corners": ("hard", 0),       # two segments meeting at < 135 degrees (90-degree corners)
     "track_junctions": ("hard", 0),           # three or more tracks meeting off a pad (tees, Y-branches, branches at vias)
     "jogs": ("hard", 0),                      # zero-length segments and short offsets between parallel runs
+    "diagonal_length_pct": ("soft", 20.0),    # % of routed length at 45 degrees: most tracks horizontal or vertical
+    "long_diagonals": ("soft", 0),            # 45-degree segments longer than DIAG_MM: keep diagonals short
     "short_segment_pct": ("soft", 10.0),      # % of interior segments shorter than SHORT_MM
     "segments_per_connection_p90": ("soft", 8.0),
     "vias_per_connection_max": ("soft", 4.0),
     "detour_p90": ("soft", 1.6),
     # copper (copper.py)
-    "teardrops_disabled": ("hard", 0),        # pads/vias with a track on them and teardrops off
+    "teardrops_disabled": ("hard", 0),        # vias and plated-hole pads with a track on them and teardrops off
+    "teardrops_disabled_smd": ("soft", 0),    # the same for SMD pads: recommended, not required
     "teardrops_missing": ("soft", 0),         # teardrops on but not drawn (KiCad skips a few on its own)
     "zone_unfilled": ("hard", 0),             # copper zones with no fill in the file
     "zone_islands": ("hard", 0),              # fill pieces touching nothing of their net
@@ -82,6 +87,7 @@ ANGLE_TOL = 0.5     # degrees
 DRC_EPSILON = 0.0005  # mm; gaps this close to the limit pass, as in KiCad's DRC (matched on e-psu)
 JOG_MM = 0.25
 SHORT_MM = 0.5
+DIAG_MM = 2.0       # a 45-degree segment longer than this is a "long diagonal" (house style: diagonals stay short)
 
 
 # ----------------------------------------------------------------------------------------------- profiles
@@ -484,6 +490,16 @@ def geometry_report(board):
         return (o["x2"] - o["x1"], o["y2"] - o["y1"]) if e == 0 else (o["x1"] - o["x2"], o["y1"] - o["y2"])
 
     any_angle, jogs, short, interior = [], [], 0, 0
+    diag_len = total_len = 0.0
+    long_diag = []
+    for s in segs:
+        L = _seg_len(s)
+        total_len += L
+        a = math.degrees(math.atan2(abs(s["y2"] - s["y1"]), abs(s["x2"] - s["x1"])))
+        if ANGLE_TOL <= a <= 90 - ANGLE_TOL:
+            diag_len += L
+            if L > DIAG_MM:
+                long_diag.append(s)
     jogs += [s for s in board.segments if _seg_len(s) <= 1e-6]   # zero-length leftovers
     for s in segs:
         L = _seg_len(s)
@@ -572,6 +588,7 @@ def geometry_report(board):
         "segments": len(segs), "vias": len(board.vias),
         "any_angle_segments": len(any_angle), "acute_corners": len(acute), "right_angle_corners": len(right),
         "track_junctions": len(junctions), "jogs": len(jogs),
+        "diagonal_length_pct": (100.0 * diag_len / total_len) if total_len else 0.0, "long_diagonals": len(long_diag),
         "short_segment_pct": (100.0 * short / interior) if interior else 0.0,
         "segments_per_connection_p90": _percentile([r["seg_per_conn"] for r in rows], 90),
         "vias_per_connection_max": max([r["via_per_conn"] for r in rows], default=0.0),
@@ -583,6 +600,8 @@ def geometry_report(board):
         "right_angle_corners": right[:15],
         "track_junctions": junctions[:15],
         "jogs": [(s["layer"], s["net"], round(s["x1"], 3), round(s["y1"], 3), round(_seg_len(s), 3)) for s in jogs[:15]],
+        "long_diagonals": [(s["layer"], s["net"], round(s["x1"], 3), round(s["y1"], 3), round(_seg_len(s), 2))
+                           for s in sorted(long_diag, key=lambda s: -_seg_len(s))[:15]],
     }
     worst = {
         "segments_per_connection": sorted(rows, key=lambda r: -r["seg_per_conn"])[:10],
@@ -691,15 +710,20 @@ def managed_roles(dru_path):
     return dict(kv.split("=", 1) for kv in v.split()) if v else None
 
 
+TD_CLASSES = "DIFF_*,RF_*"   # net classes without teardrops by default: they shift a matched line's impedance
+
+
 def managed_teardrops(dru_path):
-    """(teardrops on?, exclude regex or None) recorded by `apply`; (True, None) when not recorded."""
+    """(teardrops on?, exclude regex or None, excluded class patterns) recorded by `apply`.
+    Not recorded: (True, None, TD_CLASSES)."""
     v = _managed(dru_path, "teardrops")
     if not v:
-        return True, None
+        return True, None, TD_CLASSES
     if v.startswith("off"):
-        return False, None
-    m = re.search(r"off for nets matching (.+)$", v)
-    return True, (m.group(1) if m else None)
+        return False, None, ""
+    m = re.search(r"off for nets matching (.+?)(?:; off for classes .*)?$", v)
+    c = re.search(r"; off for classes (\S*)$", v)
+    return True, (m.group(1) if m else None), (c.group(1) if c else "")
 
 
 def managed_fabs(dru_path):
@@ -870,13 +894,15 @@ def cmd_apply(a):
         roles = dict(zip(cu, want))
     else:
         roles = copper.roles_for(cu)
-    td = "off" if a.no_teardrops else ("on" + (f", off for nets matching {a.teardrop_exclude}" if a.teardrop_exclude else ""))
+    td = "off" if a.no_teardrops else ("on" + (f", off for nets matching {a.teardrop_exclude}" if a.teardrop_exclude else "")
+                                       + (f"; off for classes {a.teardrop_classes}" if a.teardrop_classes else ""))
     write_dru(dru, dru_block(fab_min, fabs, layers, low, roles, td))
     web_ok = os.path.exists(board) and set_mask_web(board, fab_min["mask_bridge"])
     td_changed = 0
     if os.path.exists(board) and not a.no_teardrops:
         with open(board, encoding="utf-8") as f:
-            text, td_changed = copper.set_teardrops(f.read(), a.teardrop_exclude)
+            text, td_changed = copper.set_teardrops(f.read(), a.teardrop_exclude,
+                                                    copper.class_skip(pro, a.teardrop_classes))
         with open(board, "w", encoding="utf-8") as f:
             f.write(text)
     print(f"applied {'+'.join(fabs)} ({layers} copper layers) to {os.path.basename(pro)}")
@@ -983,7 +1009,7 @@ def cmd_check(a):
         sh, gp = copper_check(b, limit if fab_min else 0.0)
         metrics.update(shorts=len(sh), clearance_violations=len(gp) if fab_min else None, below_fab_minimum=None, dangling=None)
         lines += ["## Shorts and clearance (geometry only, no KiCad)", "",
-                  f"Tracks, arcs, vias and pads of different nets on a shared copper layer: touching = short; gap below "
+                  "Tracks, arcs, vias and pads of different nets on a shared copper layer: touching = short; gap below "
                   + (f"the {'+'.join(fabs)} minimum {limit:g} mm = violation." if fab_min else "nothing checked (no fab known: pass `--fab`).")
                   + " Zones, net-class clearances and custom-shaped pads need KiCad DRC.", "",
                   f"- shorts: **{len(sh)}**", f"- gaps below the fab minimum: **{len(gp) if fab_min else 'n/a'}**", ""]
@@ -995,15 +1021,16 @@ def cmd_check(a):
 
     if not a.no_copper:
         import copper as cu
-        td_on, td_ex = managed_teardrops(dru)
-        cm, cex, cinfo = cu.report(copper_board, pro, managed_roles(dru), td_ex, td_on)
+        td_on, td_ex, td_cls = managed_teardrops(dru)
+        cm, cex, cinfo = cu.report(copper_board, pro, managed_roles(dru), td_ex, td_on, td_cls)
         metrics.update(cm)
         roles = cinfo["roles"]
         lines += ["## Copper: teardrops, pours, planes", "",
                   f"Measured on {copper_src}: {cinfo['zones']} copper zones, {cinfo['teardrop_zones']} teardrops. "
                   "Stack-up roles: " + (" ".join(f"{l}={r}" for l, r in roles.items()) if roles else "unknown (pass --stackup to apply)")
                   + ("; references: " + ", ".join(f"{l} → {r}" for l, r in cinfo["references"].items()) if cinfo["references"] else "")
-                  + (f". Teardrops: off for nets matching `{td_ex}`." if td_ex else "") + ("" if td_on else ". Teardrops: not used (apply --no-teardrops)."),
+                  + (f". Teardrops: off for nets matching `{td_ex}`." if td_ex else "")
+                  + (f". Teardrops: off for classes `{td_cls}`." if td_on and td_cls else "") + ("" if td_on else ". Teardrops: not used (apply --no-teardrops)."),
                   ""]
         for k, ex in cex.items():
             if ex:
@@ -1074,6 +1101,8 @@ def main():
     p.add_argument("--stackup", help="layer roles top to bottom, e.g. SIG,GND,PWR,SIG (default: the template for the layer count)")
     p.add_argument("--no-teardrops", action="store_true", help="leave teardrop flags alone and skip the teardrop gates")
     p.add_argument("--teardrop-exclude", metavar="REGEX", help="nets that must not get teardrops (e.g. RF lines: 'RF|ANT')")
+    p.add_argument("--teardrop-classes", default=TD_CLASSES, metavar="PATTERNS",
+                   help=f"net classes without teardrops, comma-separated wildcards (default {TD_CLASSES}; '' for none)")
     c = sub.add_parser("check", help="shorts/clearance + DRC + layout-quality gate")
     c.add_argument("board")
     c.add_argument("--fab", help="fab profile(s) for the fab-floor check (default: the ones `apply` recorded)")

@@ -9,7 +9,7 @@
 Class names go on the schematic's net-class directive labels; KiCad resolves each label to its net and writes
 the assignment into the project. The name carries what sizes the class:
 
-  PWR_<I>A[_<V>V]     power. Width from IPC-2221's external fit for I amps at a dT rise, on the stack-up's
+  PWR_<I>A[_<V>V]     power. Width from the IPC-2221 external-chart fit for I amps at a dT rise, on the stack-up's
                       outer and inner copper thickness (inner layers too, per IPC-2152's findings); at or above
                       the width of 3 A on 1 oz outer copper the net must be a pour (D21).
   GND[_<I>A][_<V>V]   ground; sized like PWR when a current is given, otherwise the signal values.
@@ -18,8 +18,8 @@ the assignment into the project. The name carries what sizes the class:
   DIFF_90, DIFF_100, RF_50 [_<V>V]
                       impedance classes: set track width and gap from the fab's impedance calculator for the
                       stack-up in Board Setup; apply leaves them alone.
-  ..._<V>V            clearance from IPC-2221 Table 6-1, external uncoated (B2), for V volts (DC or peak), at
-                      least the fab's design value. Above 500 V: a safety standard, not this tool.
+  ..._<V>V            clearance from IPC-2221C Table 6-1 for V volts (DC or peak): the larger of external uncoated
+                      conductors (B2) and uncoated component terminations (A7), at least the fab's design value. Above 500 V: a safety standard, not this tool.
 Decimals: PWR_2.5A or PWR_2p5A.
 
 apply   adds or updates each standard class in use (from assignments, patterns or the class list) in the
@@ -50,8 +50,10 @@ DT = 10.0                     # °C rise (D21)
 POUR_AMPS_1OZ = 3.0           # at or above the outer width of this current on 1 oz, a net is a pour (D21)
 OZ_MM = 0.035                 # 1 oz copper (power-pcb-layout §3.5: 1 oz = 35 µm)
 DEFAULT_OUTER_MM, DEFAULT_INNER_MM = 0.035, 0.0175   # when the board has no stack-up: 1 oz / 0.5 oz
-# IPC-2221 Table 6-1, external uncoated (B2), mm, by the top of each voltage band (power-pcb-layout §3.8)
-B2 = [(30, 0.1), (100, 0.6), (150, 0.6), (300, 1.25), (500, 2.5)]
+# IPC-2221C Table 6-1, mm, by the top of each voltage band: the larger of B2 (external conductors, uncoated, sea
+# level to 3050 m) and A7 (external component leads and terminations, uncoated; A6 in rev B), because a net-class
+# clearance also governs the net's pads (power-pcb-layout §3.8; values from a secondary transcription of rev C)
+CLEARANCE = [(15, 0.13), (30, 0.25), (100, 0.64), (150, 0.80), (300, 1.25), (500, 2.5)]
 
 GATES = {
     "nets_in_default": ("hard", 0),
@@ -65,17 +67,18 @@ GATES = {
 
 # ------------------------------------------------------------------------------------------------- sizing
 def width_mm(amps, dt=DT, copper_mm=OZ_MM):
-    """IPC-2221's external fit, I = 0.048 * dT^0.44 * A^0.725 with A in mil² (power-pcb-layout §3.5), on the
-    layer's own copper thickness. Used for inner layers too: IPC-2152's tests found internal and external
-    conductors reach close to the same temperature rise, and IPC-2221's internal chart (k = 0.024, half the
-    current) was never based on tests of internal conductors [PCDF-2152]."""
+    """The fit to the historical IPC-2221 (IPC-D-275) external chart, I = 0.048 * dT^0.44 * A^0.725 with A in mil²
+    (power-pcb-layout §3.5), on the layer's own copper thickness. IPC-2152 replaced those charts; its one chart for
+    internal and external conductors is why the same fit serves inner layers: internal and external conductors
+    reach close to the same temperature rise, and the old internal chart (k = 0.024) was not based on tests of
+    internal conductors [PCDF-2152]."""
     k = 0.048
     area_mil2 = (amps / (k * dt ** 0.44)) ** (1 / 0.725)
     return area_mil2 / (copper_mm / 0.0254) * 0.0254
 
 
 def clearance_for(volts):
-    for top, mm in B2:
+    for top, mm in CLEARANCE:
         if volts <= top:
             return mm
     raise SystemExit(f"{volts:g} V is above IPC-2221 Table 6-1's 500 V band used here: clearance and creepage come "

@@ -1,6 +1,6 @@
 ---
 name: pcb-design-rules
-description: Set a KiCad 10 board's design rules from the PCB fab's published capabilities (JLCPCB, Seeed Studio, or the strictest of several), turn teardrops on, record the stack-up's plane layers, and gate the layout on shorts and clearance, DRC, geometry quality (45-degree corners only, no jogs or mid-track branches) and copper quality (teardrops, pour islands and necks, ground-plane splits, stitching, signals over plane gaps), with a Python script that also runs in CI.
+description: Set a KiCad 10 board's design rules from the PCB fab's published capabilities (JLCPCB, Seeed Studio, or the strictest of several), turn teardrops on, record the stack-up's plane layers, and gate the layout on shorts and clearance, DRC, geometry quality (the owner's house style: 45-degree corners, mostly horizontal and vertical tracks with short diagonals, no jogs or mid-track branches; acute angles as the manufacturing rule) and copper quality (teardrops, pour islands and necks, ground-plane splits, stitching, signals over plane gaps), with a Python script that also runs in CI.
 ---
 
 # PCB design rules and layout quality gate (KiCad 10+)
@@ -14,6 +14,8 @@ Use this skill when you set up a board's rules for a fab, before routing, and wh
 | **Gate** | `pcb_rules.py check` | shorts and clearance (checks that cannot be switched off or excluded), copper below the fab minimum, and what DRC passes but a reviewer rejects: off-grid angles, 90° corners, mid-track branches, jogs, too many segments or vias, detours; teardrops off or not drawn, pour islands and necks, split or unstitched ground, signals over gaps in their reference plane |
 
 DRC-clean is the floor. A board is done when `check` passes.
+
+**Rules and house style.** The fab limits, shorts, clearance, acute angles and drilled-pad teardrops are manufacturing rules, each with a source. The other geometry gates encode the owner's **house style** for a clean, reviewable layout: octilinear tracks, 45° corners, branches on pads, no jogs, mostly horizontal and vertical runs with short diagonals. Neither IPC-2221C's contents nor JLCPCB's capabilities set a corner-angle rule [IPC-2221C][JLC-CAP]. They stay hard gates by the owner's choice; say "house style" when you report them, not "IPC" or "the fab".
 
 The script is `scripts/pcb_rules.py`, with the copper checks in `scripts/copper.py` (they need `pip install shapely scipy`; the rest is standard library). It reads and writes **KiCad 10 or later** files only: an older board is refused, so open and save it in KiCad 10 first. Fab data lives in `profiles/<fab>.json`, stack-up templates in `profiles/stackups.json`, each with source URLs and the date it was checked. If `scripts/` is not next to this file (e.g., the skill was installed as a single SKILL.md), get both folders from github.com/gabrielfrasantos/claude-hardware-skills, path `plugins/hardware-design/skills/pcb-design-rules/`.
 
@@ -29,7 +31,7 @@ The user places and locks the main parts and draws the outline. You set the rule
    # or the strictest of several fabs, so the board can go to either:
    python3 scripts/pcb_rules.py apply board.kicad_pro --fab jlcpcb,seeed --netclasses
    ```
-   `apply` reads the copper layers from the board. It ends with `loads OK` only after KiCad has actually parsed the rules file (see §4). It also turns teardrops on (pass `--teardrop-exclude 'RF|ANT'` for nets that must not have them, such as a matched RF line) and records the layer roles (`--stackup SIG,GND,PWR,SIG` when the board does not follow the template, §3.2).
+   `apply` reads the copper layers from the board. It ends with `loads OK` only after KiCad has actually parsed the rules file (see §4). It also turns teardrops on, except for nets of the `DIFF_*` and `RF_*` classes (teardrops shift a matched line's impedance; `--teardrop-classes` changes the list, `--teardrop-exclude 'RF|ANT'` adds nets by name). It records the layer roles (`--stackup SIG,GND,PWR,SIG` when the board does not follow the template, §3.2).
    - **User:** in KiCad, *Edit → Edit Teardrops*, apply to all, and save. `apply` sets KiCad's per-pad and per-via teardrop flags; KiCad draws the teardrops. `check` confirms they exist.
 3. **You:** route in phases (power first, then sensitive analog, then digital), following the domain skill (`power-pcb-layout`, `interface-layout`, `high-speed-digital-layout`, `rf-layout`). Run `check --allow-unrouted` after each phase and fix what it reports before moving on. Shorts and clearance violations are never deferred.
    - Pours: fill and save before `check` (*B*), or let `check` refill a copy (§2.4). Fix islands, necks and unstitched ground as they appear, not at the end.
@@ -41,7 +43,7 @@ The user places and locks the main parts and draws the outline. You set the rule
 ```bash
 python3 scripts/pcb_rules.py profiles                        # list fab profiles
 python3 scripts/pcb_rules.py apply <board.kicad_pro|.kicad_pcb> --fab jlcpcb[,seeed] [--layers N] [--netclasses] \
-        [--stackup SIG,GND,PWR,SIG] [--no-teardrops] [--teardrop-exclude REGEX]
+        [--stackup SIG,GND,PWR,SIG] [--no-teardrops] [--teardrop-exclude REGEX] [--teardrop-classes DIFF_*,RF_*]
 python3 scripts/pcb_rules.py check <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor] \
         [--no-copper] [--gate NAME=LIMIT] [--report report.md] [--json metrics.json]
 python3 scripts/test_pcb_rules.py && python3 scripts/test_copper.py   # self-tests, no KiCad needed
@@ -61,7 +63,7 @@ python3 scripts/test_pcb_rules.py && python3 scripts/test_copper.py   # self-tes
   - SMD pad-to-pad clearance, **only between net classes whose clearance is below it** (see §4);
   - `track_angle (min 135)`: **45° corners only**. No 90° or acute corners, and no branches in the middle of a track or on a via (§4 lists exactly what KiCad flags).
 - **`--netclasses`**: raises the Default net class to the profile's design values. It only raises, never lowers. Other classes (power, HV, USB) stay yours to set from the domain skill.
-- **Teardrops** (unless `--no-teardrops`): KiCad 10 keeps a `(teardrops … (enabled yes|no))` block on every pad and via. `apply` turns it on for every netted copper pad and every via, inserting KiCad's own default block where there is none, and off for nets matching `--teardrop-exclude`. It also turns the project defaults on (*Board Setup → Teardrops*: SMD pads, PTH pads, vias), so new items get them. The choice is recorded in the managed block, and `check` reads it back.
+- **Teardrops** (unless `--no-teardrops`): KiCad 10 keeps a `(teardrops … (enabled yes|no))` block on every pad and via. `apply` turns it on for every netted copper pad and every via, inserting KiCad's own default block where there is none, and off for nets of the `--teardrop-classes` (default `DIFF_*,RF_*`) and nets matching `--teardrop-exclude`. Why: teardrops add mechanical strength and tolerate drill misregistration at drilled pads and vias [KICAD-TD]; JLCPCB advises considering them where the annular ring is small [JLC-TD]. On SMD pads they are optional, and they change the impedance of a matched line where it meets a pad or via. It also turns the project defaults on (*Board Setup → Teardrops*: SMD pads, PTH pads, vias), so new items get them. The choice is recorded in the managed block, and `check` reads it back.
 - **Stack-up roles**: `# stackup: F.Cu=SIG In1.Cu=GND …` in the managed block, from `--stackup` or the template for the layer count (§3.2). `check` uses them to find each signal layer's reference plane and the layers that must be solid ground.
 - Re-run `apply` after changing net classes or the layer count: the pad-to-pad rule depends on both. It is idempotent: a second run changes nothing.
 
@@ -82,11 +84,13 @@ Without KiCad (`--no-drc`), the script checks copper itself: tracks, arcs, vias 
 | `clearance_violations` | 0 | hard | every other copper-safety violation (§2.1 list) |
 | `below_fab_minimum` | 0 | hard | fab-floor pass |
 | `dangling` | 0 | hard (soft with `--allow-unrouted`) | tracks or vias connected at one end only |
-| `any_angle_segments` | 0 | hard | segments (≥ 0.05 mm) not within ±0.5° of 0/45/90/135° |
-| `acute_corners` | 0 | hard | tracks meeting off a pad at < 90° (acid traps, doubled-back tracks, Y-branches) |
-| `right_angle_corners` | 0 | hard | two segments meeting off a pad at < 135°, i.e. 90° corners, including turns on a via |
-| `track_junctions` | 0 | hard | three or more tracks meeting off a pad: tees in mid-track or on a via |
-| `jogs` | 0 | hard | zero-length segments, and interior segments < 0.25 mm between **parallel** runs (sideways steps). A short 45° miter is not a jog |
+| `acute_corners` | 0 | hard | tracks meeting off a pad at < 90°: acid traps (the manufacturing concern; secondary sources [ACID]), doubled-back tracks, Y-branches |
+| `any_angle_segments` | 0 | hard, house style | segments (≥ 0.05 mm) not within ±0.5° of 0/45/90/135° |
+| `right_angle_corners` | 0 | hard, house style | two segments meeting off a pad at < 135°, i.e. 90° corners, including turns on a via |
+| `track_junctions` | 0 | hard, house style | three or more tracks meeting off a pad: tees in mid-track or on a via |
+| `jogs` | 0 | hard, house style | zero-length segments, and interior segments < 0.25 mm between **parallel** runs (sideways steps). A short 45° miter is not a jog |
+| `diagonal_length_pct` | 20 % | soft, house style | share of the routed length that runs at 45°: most tracks run horizontal or vertical (§5) |
+| `long_diagonals` | 0 | soft, house style | 45° segments longer than 2 mm (`DIAG_MM`): diagonals stay short, as miters and short escapes |
 | `short_segment_pct` | 10 % | soft | interior segments < 0.5 mm |
 | `segments_per_connection_p90` | 8 | soft | segments per pad-to-pad connection, 90th percentile over nets |
 | `vias_per_connection_max` | 4 | soft | worst net |
@@ -94,7 +98,9 @@ Without KiCad (`--no-drc`), the script checks copper itself: tracks, arcs, vias 
 
 The report lists every short and clearance violation with item descriptions and coordinates, examples of each geometry failure, the worst nets, and the H/V/other split of routed length per copper layer. Exit status is 1 when a hard gate fails.
 
-Copper gates (§2.4) are in the same table: `teardrops_disabled`, `zone_unfilled`, `zone_islands`, `zone_necks`, `gnd_plane_splits` and `unstitched_ground` are hard; `teardrops_missing`, `gnd_via_max_distance_mm` and `signal_over_plane_gap_mm` are soft.
+Copper gates (§2.4) are in the same table: `teardrops_disabled`, `zone_unfilled`, `zone_islands`, `zone_necks`, `gnd_plane_splits` and `unstitched_ground` are hard; `teardrops_disabled_smd`, `teardrops_missing`, `gnd_via_max_distance_mm` and `signal_over_plane_gap_mm` are soft.
+
+The two diagonal gates are calibrated on the owner's boards, which predate the instruction: e-foc is 30.5 % diagonal with 180 diagonals over 2 mm, e-inverted-pendulum 34.3 % with 137 (2026-11-20). Expect warnings on escapes from rotated or fine-pitch parts and on copied vendor blocks (`reference-block`); fix the rest.
 
 Override a geometry gate only for a stated reason, for example a footprint rotated 30° whose pads force off-grid escapes: `--gate any_angle_segments=4`. Write the reason in the PR. Never override `shorts`, `clearance_violations` or `below_fab_minimum`; fix the copper.
 
@@ -104,7 +110,8 @@ Measured from the zone fills. With KiCad, `check` refills the zones on its proje
 
 | Gate | Default | Kind | Meaning |
 |---|---|---|---|
-| `teardrops_disabled` | 0 | hard | a pad or via with a track ending on it whose teardrop flag is off (excluded nets aside) |
+| `teardrops_disabled` | 0 | hard | a via or plated-hole pad with a track ending on it whose teardrop flag is off (excluded nets and classes aside) |
+| `teardrops_disabled_smd` | 0 | soft | the same for an SMD pad |
 | `teardrops_missing` | 0 | soft | flag on, track narrower than `filter_ratio` × the pad, pad not in a pour of its own net, and no teardrop drawn. KiCad skips some itself (e.g. a bend too close to the pad), so it is a warning |
 | `zone_unfilled` | 0 | hard | copper zones with a net and no fill |
 | `zone_islands` | 0 | hard | fill pieces touching no pad, via or track of their net |
@@ -144,11 +151,11 @@ Minimums are the published capability. Design values are what `--netclasses` wri
 | Hole to hole / pad hole to pad hole | 0.20 / 0.45 | 0.20 / 0.45 | 0.30 / 0.45 | 0.25 / — | — |
 | Hole to copper / PTH pad to track | 0.20 / 0.28 | 0.20 / 0.28 | 0.3048 / 0.3048 | 0.25 / — | — / 0.35 |
 | SMD pad to pad | 0.15 | 0.15 | 0.1016 | — | — |
-| Copper to edge | 0.20 | 0.20 | 0.30 | 0.5 | 0.50 *(derived)* |
+| Copper to edge | 0.20 (V-cut 0.40) | 0.20 (V-cut 0.40) | 0.30 | 0.5 | 0.50 *(derived)* |
 | Solder-mask web | 0.10 | 0.10 | 0.10 option, default 0.32–0.35 | **0** | — |
 | Silk line / text height / to pad | 0.15 / 1.0 / 0.15 | same | 0.1016 / 0.5842 / 0.1524 | 0.08 / 0.8 / 0 | — |
 
-Sources and check dates are in `profiles/*.json`.
+Sources and check dates are in `profiles/*.json`. JLCPCB also recommends, above its minimums: a via 0.15 mm larger than its hole and a 0.20 mm hole; a 0.20 mm PTH ring on multilayer boards at 1 oz. Its average hole plating is 18 µm, which sets via current (`pcb-copper`). Impedance control (±10 %, 4 layers and up) and via-in-pad (filled and capped) are order options, not defaults [JLC-CAP].
 
 ### 3.2 Stack-up templates (`profiles/stackups.json`)
 
@@ -157,11 +164,15 @@ Layer roles top to bottom: SIG = signals with ground fill, GND = solid ground pl
 | Layers | Roles | Source |
 |---|---|---|
 | 2 | SIG / GND | *(derived)* from SPRAAR7J 2.4: the only reference a top-layer signal can have is an unbroken bottom ground fill |
-| 4 | SIG / GND / PWR / SIG | TI SN75LVCP600S datasheet §11.1: solid ground next to the high-speed layer, power plane next to ground for bypass capacitance |
+| 4 | SIG / GND / GND / SIG | ADI's preferred 4-layer option: signals outside, both inner layers ground; fewer vias, and advantages for switch-mode supplies [ADI-EMI-4]. No signal references a power plane [SPRAAR7J 2.4]. Power runs as pours and wide tracks on the signal layers |
 | 6 | SIG / GND / SIG / SIG / PWR / SIG | TI SPRAAR7J Table 3-1 (PWR is POWER/GROUND there; adjacent inner signal layers routed at 90° to each other) |
 | 8 | SIG / GND / SIG / SIG / PWR / SIG / GND / SIG | TI SPRAAR7J Table 3-1 |
 
-Each signal layer's reference is the nearest plane (GND on a tie). On 4 layers the bottom layer references the power plane, as in TI's example. TI does not recommend referencing high-speed signals to a power plane [SPRAAR7J 2.4], so put fast nets on the top layer, or use 6 layers. A board that departs from its template (e.g. power pours on an inner layer you call SIG) records its own roles with `apply --stackup`.
+Each signal layer's reference is the nearest plane (GND on a tie).
+
+**Alternative on 4 layers: SIG / GND / PWR / SIG** [SN75LVCP600S §11.1]: power plane next to ground. Use it with a stated reason, recorded with `apply --stackup SIG,GND,PWR,SIG`. The bottom layer then references the power plane, which TI does not recommend for fast signals [SPRAAR7J 2.4], so keep fast nets on top. Its usual argument, plane-pair bypass capacitance, needs a thin dielectric: on JLC04161H-7628 the inner core is about 1.065 mm [JLC-STACK], about 3.8 pF/cm² *(derived: ε₀·4.6/1.065 mm)*, which is negligible next to the decoupling capacitors.
+
+A board that departs from its template (e.g. power pours on an inner layer you call SIG) records its own roles with `apply --stackup`.
 
 ### 3.1 Where sources disagree
 | Topic | Disagreement | Use |
@@ -198,6 +209,7 @@ Each signal layer's reference is the nearest plane (GND on a tie). On 4 layers t
 - **Branch on pads, not on tracks.** Start each branch from a pad (e.g., the decoupling capacitor pad, then on to the IC pin). Use a zone or a plane for nets with many branches (GND, supplies).
 - Do not turn on a via: enter and leave a via on different layers, or straight through on the same layer.
 - Set the grid to the pin pitch family (0.05 mm for metric parts, 0.0254/0.127 mm for inch parts) and route on it. Most jogs come from tracks ending off-grid on fine-pitch pads.
+- **Most tracks run horizontal or vertical; diagonals are short** (house style). Use 45° only for corner miters and short escapes from pads, a few track widths long, not for long runs across the board. A diagonal run is harder to review, packs worse next to its neighbours and blocks more routing channels. `check` measures it (`diagonal_length_pct`, `long_diagonals`), but the metric can't see intent: route clean, then look at the report's longest diagonals and straighten what has no reason.
 - Give each outer layer a preferred direction (for example F.Cu mostly horizontal, B.Cu mostly vertical) and change layer, not direction, for long crossings.
 - After each phase, run *Tools → Cleanup Tracks & Vias* (merge co-linear tracks, delete redundant vias, delete tracks unconnected at one end), then `check`.
 - Generated or scripted routing must emit only 0/45/90/135° segments with 45° corners, branch only on pads, and merge collinear segments before writing. Check it with `check --no-drc` before showing the user.
@@ -206,7 +218,7 @@ Each signal layer's reference is the nearest plane (GND on a tie). On 4 layers t
 
 - Ordering at the absolute minimum: it is possible, not free. Minimum vias and track/space trigger surcharges or lower yield. Route at the design values; go to the minimum only locally, under a fine-pitch part.
 - Footprint libraries ignore your fab: thermal-via arrays at 0.2 mm drill, PTH annular rings below 0.15 mm, mask webs below 0.1 mm. The `apply` rules find them; fix the footprint, not the rule.
-- Net-class clearances for mains, HV or isolation come from the safety standard (IPC-2221, IEC 62368-1), never from the fab profile. The fab number is only the floor.
+- Net-class clearances for mains, HV or isolation come from the safety standard (IPC-2221C, IEC 62368-1), never from the fab profile. The fab number is only the floor. KiCad's creepage check only fires with a creepage rule; no script writes one (`pcb-copper` §5).
 - Copper weight changes the minimums: thicker copper needs wider track/space (Seeed: 2 oz needs 10/10 mil, 3 oz 15/15 mil). Re-check the profile when you order heavy copper.
 - `--netclasses` only touches Default; power and HV classes need explicit values from the domain skill.
 - A DRC exclusion is a decision someone must be able to defend. `check` ignores exclusions of copper-safety checks on purpose.
@@ -215,7 +227,8 @@ Each signal layer's reference is the nearest plane (GND on a tie). On 4 layers t
 ## 7. Checklist
 
 - [ ] Fab chosen and `apply` run with the right `--fab` and layer count; output ends with `loads OK`.
-- [ ] Stack-up roles right (template or `--stackup`); RF and other matched lines in `--teardrop-exclude`.
+- [ ] Stack-up roles right (template or `--stackup` with its reason); matched lines in a `DIFF_*` / `RF_*` class or in `--teardrop-exclude`.
+- [ ] Impedance control ordered when any `DIFF_*` or `RF_*` class is used (JLCPCB: an order option, ±10 %).
 - [ ] Teardrops drawn in KiCad (*Edit → Edit Teardrops*) after routing; zones filled and saved.
 - [ ] Net classes set: Default from `--netclasses`, power/HV/USB from the domain skills.
 - [ ] Profile sources re-checked if the profile date is more than a few months old.
@@ -223,13 +236,20 @@ Each signal layer's reference is the nearest plane (GND on a tie). On 4 layers t
 - [ ] Final `check` exits 0: no shorts, no clearance violations, nothing below the fab minimum, DRC and schematic parity clean, no unconnected or dangling items, every hard geometry and copper gate at 0.
 - [ ] Soft-gate warnings explained or fixed; overrides justified in the PR.
 - [ ] Report (`--report`) attached to the PR or sent to the user.
+- [ ] Before ordering: the fab's own DFM analysis of the Gerbers reviewed (`hardware-project` Phase 4).
 
 ## 8. References
 
 - JLCPCB, *PCB Manufacturing & Assembly Capabilities*: jlcpcb.com/capabilities/pcb-capabilities, and *Impedance calculation / stackups*: jlcpcb.com/impedance (checked 2026-11-04).
 - Seeed Studio, *Fusion PCB Specification*: support.seeed.cc/portal/en/kb/articles/fusion-pcb-specification (checked 2026-11-04).
 - KiCad 10 manual, *PCB Editor → Board Setup → Constraints* and *Custom design rules*: docs.kicad.org/10.0/en/pcbnew/pcbnew.html.
-- IPC-2221B, *Generic Standard on Printed Board Design* (electrical clearance, Table 6-1).
+- [IPC-2221C] IPC-2221C, *Generic Standard on Printed Board Design* (Dec 2023, supersedes 2221B): §6.3 electrical clearance, creepage and dielectric spacing; no corner-angle rule in its contents. Table of contents: https://www.electronics.org/TOC/IPC-2221C-TOC.pdf
+- [JLC-CAP] JLCPCB, *PCB Manufacturing Capabilities* (via recommendations, PTH ring 0.20 mm recommended on multilayer, 18 µm average hole plating, V-cut 0.4 mm, impedance ±10 %, via-in-pad), checked 2026-11-20. https://jlcpcb.com/capabilities/PCB-capabilities
+- [JLC-TD] JLCPCB blog, *PCB Teardrop You Should Know*. https://jlcpcb.com/blog/pcb-teardrop-you-should-know
+- [KICAD-TD] KiCad 10 manual, *PCB Editor → Teardrops*. https://docs.kicad.org/10.0/en/pcbnew/pcbnew.html
+- [ACID] *(secondary)* T. Lockman (Cadence), *Make Acute Angles a Sharp Problem of the Past*, Semiconductor Engineering. https://semiengineering.com/make-acute-angles-a-sharp-problem-of-the-past
+- [ADI-EMI-4] J. Niemann (ADI), *Passing EMI Compliance Testing the First Time, Part 4: Power Routing and Stack-Up Planning*. https://www.analog.com/en/resources/technical-articles/passing-emi-compliance-testing-first-time-part-4.html
+- [JLC-STACK] JLCPCB, *PCB Stackup* FAQ (JLC04161H-7628 core thickness). https://jlcpcb.com/quote/pcbOrderFaq/PCB%20Stackup
 - [SPRAAR7J] TI, *High-Speed Interface Layout Guidelines*, SPRAAR7J (Feb 2023), §2.4 reference planes and Table 3-1 stack-ups: ti.com/lit/pdf/SPRAAR7.
 - [SN75LVCP600S] TI, SN75LVCP600S datasheet, §11.1 Layout Guidelines (4-layer stack-up).
 - KiCad 10 teardrop format: the per-pad and per-via `teardrops` block and the `(attr (teardrop (type padvia)))` zones, as KiCad 10.0 writes them (read from the e-foc board, 2026-11-20). `check`'s copper gates were run on the e-foc and e-inverted-pendulum boards; `apply`'s teardrop edit was not yet reopened in KiCad.

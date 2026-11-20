@@ -25,6 +25,13 @@ Verification methods:
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
 
+## Manufacturing
+
+| ID | Requirement | Source | Verify |
+|---|---|---|---|
+| HW-MFG-001 | ASSUMPTION: fab and assembler, layer count and stack-up, and the IPC acceptance class the board is designed and ordered to (Class 2 unless the product needs 3). | D-xxx | R |
+| HW-MFG-002 | ASSUMPTION: test access (test points for supplies, reset, debug), and the EMC and safety standards the product must meet. | D-xxx | R, T |
+
 ## Open items
 
 - ASSUMPTION rows above are placeholders: replace them from the firmware's requirements at Phase 0.

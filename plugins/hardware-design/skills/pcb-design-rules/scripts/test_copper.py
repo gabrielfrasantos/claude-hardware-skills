@@ -65,7 +65,11 @@ class Teardrops(unittest.TestCase):
 
     def test_disabled_missing_present(self):
         track = seg(0, 0, 3, 0, "A")
-        self.assertEqual(report(pad_fp("R1", 0, 0, "A"), track)["teardrops_disabled"], 1)
+        m = report(pad_fp("R1", 0, 0, "A"), track)                  # an SMD pad: recommended, so soft
+        self.assertEqual((m["teardrops_disabled"], m["teardrops_disabled_smd"]), (0, 1))
+        tht = report(pad_fp("J1", 0, 0, "A", kind="thru_hole", layers='"*.Cu"'), track)
+        self.assertEqual(tht["teardrops_disabled"], 1)                     # a drilled pad: hard
+        self.assertEqual(report(via(0, 0, "A"), track)["teardrops_disabled"], 1)
         m = report(pad_fp("R1", 0, 0, "A", td=TD_ON), track)
         self.assertEqual((m["teardrops_disabled"], m["teardrops_missing"]), (0, 1))
         drop = zone("A", "F.Cu", [(0.5, -0.5), (1.2, -0.1), (1.2, 0.1), (0.5, 0.5)], teardrop=True)
@@ -77,6 +81,19 @@ class Teardrops(unittest.TestCase):
         self.assertEqual(report(pad_fp("R1", 0, 0, "A", td=TD_ON), seg(0, 0, 3, 0, "A", w=1.0))["teardrops_missing"], 0)
         # not measured when apply recorded teardrops off
         self.assertIsNone(report(pad_fp("R1", 0, 0, "A"), track, teardrops=False)["teardrops_disabled"])
+
+    def test_matched_classes_excluded(self):
+        with tempfile.TemporaryDirectory() as d:
+            pro = os.path.join(d, "b.kicad_pro")
+            with open(pro, "w") as f:
+                json.dump({"net_settings": {"classes": [{"name": "Default"}, {"name": "DIFF_90"}],
+                                            "netclass_assignments": {"USB_DP": "DIFF_90"}}}, f)
+            items = (via(0, 0, "USB_DP"), seg(0, 0, 3, 0, "USB_DP"))
+            self.assertEqual(report(*items, pro=pro)["teardrops_disabled"], 0)
+            self.assertEqual(report(*items, pro=pro, td_classes="")["teardrops_disabled"], 1)
+            text = board_text(via(0, 0, "USB_DP"), via(5, 0, "A"))
+            out, n = copper.set_teardrops(text, skip=copper.class_skip(pro, "DIFF_*,RF_*"))
+            self.assertEqual([v["td"]["enabled"] for v in pcb_rules.Board(text=out).vias], [False, True])
 
 
 class Pours(unittest.TestCase):
@@ -122,19 +139,24 @@ class Pours(unittest.TestCase):
 class Planes(unittest.TestCase):
     def test_reference_layer(self):
         layers = ["F.Cu", "In1.Cu", "In2.Cu", "B.Cu"]
-        roles = copper.roles_for(layers)
-        self.assertEqual(roles, {"F.Cu": "SIG", "In1.Cu": "GND", "In2.Cu": "PWR", "B.Cu": "SIG"})
+        roles = copper.roles_for(layers)                     # default: both inner layers ground (ADI)
+        self.assertEqual(roles, {"F.Cu": "SIG", "In1.Cu": "GND", "In2.Cu": "GND", "B.Cu": "SIG"})
         self.assertEqual(copper.reference_layer("F.Cu", layers, roles), "In1.Cu")
         self.assertEqual(copper.reference_layer("B.Cu", layers, roles), "In2.Cu")   # the adjacent plane
+        pwr = {"F.Cu": "SIG", "In1.Cu": "GND", "In2.Cu": "PWR", "B.Cu": "SIG"}       # the recorded alternative
+        self.assertEqual(copper.roles_for(layers, pwr), pwr)
+        self.assertEqual(copper.reference_layer("B.Cu", layers, pwr), "In2.Cu")
+        self.assertIn("SIG,GND,PWR,SIG", copper.templates()["layers"]["4"]["alternatives"])
 
     def test_plane_split(self):
         v = via(1, 1, "GND") + via(9, 1, "GND")
         split = zone("GND", "In1.Cu", rect(0, 0, 4, 4), rect(6, 0, 10, 4))
-        self.assertEqual(report(v, split, layers=L4)["gnd_plane_splits"], 1)
+        in2 = zone("GND", "In2.Cu", rect(0, 0, 10, 4))       # the second ground layer of the default 4-layer stack
+        self.assertEqual(report(v, split, in2, layers=L4)["gnd_plane_splits"], 1)
         # a second ground net beside the main one is a partition, not a split
         part = zone("GND", "In1.Cu", rect(0, 0, 4, 4)) + zone("PGND", "In1.Cu", rect(6, 0, 7, 4))
-        self.assertEqual(report(v, via(6.5, 1, "PGND"), part, layers=L4)["gnd_plane_splits"], 0)
-        self.assertEqual(report(v, layers=L4)["gnd_plane_splits"], 1)                # no plane at all
+        self.assertEqual(report(v, via(6.5, 1, "PGND"), part, in2, layers=L4)["gnd_plane_splits"], 0)
+        self.assertEqual(report(v, layers=L4)["gnd_plane_splits"], 2)                # no plane on either GND layer
 
     def test_signal_over_gap(self):
         plane = zone("GND", "In1.Cu", rect(0, -5, 4, 5), rect(6, -5, 10, 5))
@@ -150,10 +172,13 @@ class Managed(unittest.TestCase):
             roles = {"F.Cu": "SIG", "In1.Cu": "GND", "In2.Cu": "PWR", "B.Cu": "SIG"}
             pcb_rules.write_dru(dru, pcb_rules.dru_block(fab, ["jlcpcb"], 4, [], roles, "on, off for nets matching ^RF"))
             self.assertEqual(pcb_rules.managed_roles(dru), roles)
-            self.assertEqual(pcb_rules.managed_teardrops(dru), (True, "^RF"))
+            self.assertEqual(pcb_rules.managed_teardrops(dru), (True, "^RF", ""))
+            pcb_rules.write_dru(dru, pcb_rules.dru_block(fab, ["jlcpcb"], 4, [], roles,
+                                                         "on, off for nets matching ^RF; off for classes DIFF_*,RF_*"))
+            self.assertEqual(pcb_rules.managed_teardrops(dru), (True, "^RF", "DIFF_*,RF_*"))
             self.assertEqual(pcb_rules.managed_fabs(dru), ["jlcpcb"])
             pcb_rules.write_dru(dru, pcb_rules.dru_block(fab, ["jlcpcb"], 4, [], None, "off"))
-            self.assertEqual(pcb_rules.managed_teardrops(dru), (False, None))
+            self.assertEqual(pcb_rules.managed_teardrops(dru), (False, None, ""))
             self.assertIsNone(pcb_rules.managed_roles(dru))
 
 

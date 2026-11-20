@@ -14,8 +14,9 @@ before. Record each sign-off (date, conditions) in this file.
 Gate: requirements traced; sizing reported; key decisions logged; owner review.
 
 ## Phase 1: schematic (`schematic-capture`, one sheet per block)
-Rules: `mcu-circuit-design`, `analog-circuit-design`, `power-pcb-layout` (schematic side), `interface-layout`,
-`rf-layout`. The datasheets win.
+Rules: `mcu-circuit-design`, `analog-circuit-design`, `power-circuit-design`, `interface-layout`, `rf-layout`.
+The datasheets win. Plan test points now: every supply, ground, reset, debug and key signal reachable by a probe or
+fixture (IPC-2221C §3.6, §10.2.3).
 
 Gate:
 - `schgen.py build` with no problems or lint; `schgen.py check` passes; ERC clean;
@@ -37,11 +38,20 @@ firmware constraints.
 2. `pcb_rules.py apply --fab {{FAB}} --netclasses`; `netclasses.py apply`.
 3. Placement (`place.py optimize`, render, refine, owner review), then pin assignment (`pins.py assign`), pin map
    written back to the schematic and frozen by a decision.
+   - **Mini-gate after the pin-map freeze** (the schematic changed after the Phase 1 gate): `schgen.py build` and
+     `check`, ERC, `library_check.py`, `trace.py`, all clean again; firmware told the new pin map.
 4. Routing in phases: power copper, critical routes, the rest, fills; teardrops drawn.
 
-Gate: `pcb_rules.py check` and `netclasses.py check` exit 0; `place.py gate` reported; the reviewer agent's
-verdict; owner review.
+Gate: `pcb_rules.py check` and `netclasses.py check` exit 0; `place.py gate` reported (assembly spacing, edge
+keep-outs); test points placed and reachable; the reviewer agent's verdict; owner review.
 
 ## Phase 4: fab and bring-up
-- `export_jlcpcb.py`; check rotations in the fab's viewer; order.
+- `export_jlcpcb.py`; check rotations in the fab's viewer.
+- Assembly pre-flight: fiducials or the fab's edge rails, part spacing and edge keep-outs (`pcb-placement` gate),
+  `jlc_stock.py` (stock and lifecycle).
+- The fab's own DFM analysis of the Gerbers reviewed; options ordered as designed (impedance control, via-in-pad,
+  inner copper weight, acceptance class).
+- EMC: a pre-compliance scan planned for the first boards when the product needs certification (radiated and
+  conducted emissions, ESD on connectors).
+- Order.
 - `docs/bringup.md`, in order; every B requirement closed or logged.

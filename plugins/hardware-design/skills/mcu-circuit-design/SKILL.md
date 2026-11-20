@@ -49,7 +49,7 @@ For other families, search the vendor's site for "hardware design guidelines", "
 
 ## 2. Supplies and decoupling
 
-**Generic rule.** One ceramic of about 100 nF (X5R/X7R) at every supply pin, as close as possible, plus bulk capacitance per package. The analog supply and reference get their own filtered decoupling. Internal core-regulator pins get *exactly* the capacitance and ESR the datasheet specifies.
+**Generic rule.** One ceramic of about 100 nF (X5R/X7R) at every supply pin, as close as possible, plus bulk capacitance per package. Same side as the MCU where possible. Where a datasheet gives a number, use it: Microchip, for example, allows at most 6 mm (0.25 in) of trace when the capacitor reaches the pin through a via [MCHP-DEC]. The analog supply and reference get their own filtered decoupling. Internal core-regulator pins get *exactly* the capacitance and ESR the datasheet specifies.
 
 **Look up:** decoupling per pin; bulk; analog-supply filtering; core-regulator capacitor value, ESR and type; backup-domain (VBAT) handling.
 
@@ -294,3 +294,4 @@ The 20-pin Debug+ETM connector shares the first 10 pins [SEGGER][Keil].
 - **[SM712]** Littelfuse, SM712 datasheet.
 - **[SEGGER]** SEGGER Knowledge Base, *9-pin JTAG/SWD connector*.
 - **[Keil]** Arm Keil, *ULINKpro User's Guide: Connectors*.
+- **[MCHP-DEC]** Microchip, PIC16(L)F18425/45 datasheet §2.2.1 *Decoupling Capacitors*. https://onlinedocs.microchip.com/oxy/GUID-1D0144A3-6E9C-49D4-850F-2F7000F00CDF-en-US-8/GUID-71E742B2-6F76-4E03-8CBC-F4DB94ED0311.html

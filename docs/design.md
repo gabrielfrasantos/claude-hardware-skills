@@ -1,6 +1,6 @@
 # Design: from rules library to workflow and generation
 
-Status: agreed 2026-11-20 (design session, decisions D1–D30 below). This file is the plan the skills and tools are built
+Status: agreed 2026-11-20 (design session, decisions D1–D30 below; D31–D35 after the best-practices audit, §8). This file is the plan the skills and tools are built
 against. Change it with a new decision, not silently.
 
 ## 1. Goal
@@ -87,3 +87,17 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
 - **e-inverted-pendulum-hardware** is the first consumer. Its copied scripts are deleted as the plugin takes each one
   over.
 - **e-foc-hardware** stays frozen as the human baseline for the evals. A migration branch comes later.
+
+## 8. Decisions after the best-practices audit (2026-11-20)
+
+The audit (`docs/research/best-practices-audit.md`) checked the skills against primary sources. The owner decided:
+
+| | Decision |
+|---|---|
+| D31 House style | The geometry gates for octilinear angles, 90° corners, tees and jogs stay **hard**, labelled as the owner's house style, not as IPC or fab rules (none sets a corner angle). Acute angles stay the manufacturing rule. New, soft: **most tracks horizontal or vertical, diagonals short** (`diagonal_length_pct` ≤ 20 %, `long_diagonals` > 2 mm), an instruction more than a measurement. |
+| D32 Stack-up | The 4-layer default becomes **SIG / GND / GND / SIG** (ADI's preferred option; no signal over a power plane, TI SPRAAR7J §2.4). SIG / GND / PWR / SIG stays as an alternative with a stated reason. Existing boards keep their recorded roles. |
+| D33 Teardrops | Hard on vias and plated-hole pads, soft on SMD pads; off by default for the `DIFF_*` and `RF_*` classes. |
+| D34 Standards | Clearance by voltage takes the larger of IPC-2221C Table 6-1 B2 and A7 (pads are terminations). The current fit is cited as the historical IPC-2221 chart fit, superseded by IPC-2152, one fit for every layer. Vias at 18 µm plating. |
+| D35 Vendor licences | Data derived from TI design files stays in the gitignored `reference/` by default; ST's OPLA allows distribution for ST-based boards. The pendulum's committed TI-derived copper is the owner's decision. |
+
+Built from the audit's gaps, in a separate PR: JLCPCB package-pair assembly spacing, edge keep-outs, fiducials and orientation in the placement gate; a footprint-vs-LCSC-package check; BOM lifecycle in `jlc_stock.py`.

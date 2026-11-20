@@ -27,9 +27,11 @@ hardware/<board>/   the generated .kicad_sch files, the project library (.kicad_
 
 These are the e-psu / e-inverted-pendulum conventions:
 
-- **One sheet per functional block**, numbered. References on sheet n are n01–n99 (U301, C305).
+- **One sheet per functional block**, numbered. References on sheet n are n01–n99 (U301, C305): a block numbering scheme. Class letters (U, C, R, J, Q, D, L, Y, ...) follow ASME Y14.44, the current US reference-designation standard (IEEE 200 is withdrawn) [ASME-Y14.44].
 - On each sheet, **titled boxes** (`sh.box`) group circuits, and each box has a **design note** (`sh.note`) that gives the numbers' sources: datasheet section, app note, design calc, decision.
-- The **root page** describes every sheet (`sh.desc`) and carries the board's notes (`ROOT_NOTES`: power flow, grounding, numbering).
+- The **root page** describes every sheet (`sh.desc`) and carries the board's notes (`ROOT_NOTES`: power flow, grounding, numbering). Following IPC-2612's schematic-documentation contents [IPC-2612], the notes also carry:
+  - a **power and ground table**: each supply net, its voltage, source and class, and every ground net with where it joins the others;
+  - **spare and unused parts**: unused gates and op-amp sections with how they are tied off, and not-fitted parts (`DNP`) with why.
 - **Every named net has a label**, so net names (and the PCB's nets and net classes) don't depend on the drawing. Nets used on several sheets become global labels by themselves. Power nets listed in `POWER_SYMBOLS` are drawn as power symbols.
 - **Every pin has a net or a no-connect.** `build` refuses anything else, and duplicate references too.
 - The build fails on **layout lint**: a wire crossing a part, or a pin touching a wire mid-span.
@@ -85,9 +87,10 @@ Run `build` and `check` in CI next to ERC.
 ## 6. Library policy (D19)
 
 1. **KiCad's standard libraries first** (symbols and footprints). Their STM32 symbols carry every alternate function, which `pins.py` uses.
-2. **A part they lack:** take its symbol and footprint from LCSC/EasyEDA into the project library, e.g. `easyeda2kicad --full --lcsc_id C2040 --output hardware/<board>/<board>` (pip package `easyeda2kicad`). Check the footprint against the LCSC part's package drawing before using it.
+2. **A part they lack:** take its symbol and footprint from LCSC/EasyEDA into the project library, e.g. `easyeda2kicad --full --lcsc_id C2040 --output hardware/<board>/<board>` (pip package `easyeda2kicad`). Treat the footprint as unverified: KiCad's library is generated to its conventions (KLC), which follow IPC-7351 [KLC], and EasyEDA's footprints follow no stated standard. Check it against the LCSC part's package drawing and the datasheet's recommended land pattern before using it.
 3. **Hand transcription** from the datasheet, with the table cited in the symbol's description, only when neither has the part.
 4. After any library change: `library_check.py`. A symbol pin without a pad, or a pad without a pin, is a wrong footprint until proven otherwise.
+5. **Hand-made land patterns** follow the datasheet's recommended land first, then IPC-7352 (2023, the newest IPC land-pattern guideline, successor to the IPC-7351 series) for pad sizes, courtyard and **zero orientation** (pin 1 placement) [IPC-7352]. A footprint whose zero orientation differs from the library's makes the assembly file's rotations wrong (`hardware-project` export).
 
 The easyeda2kicad step was not run in the build environment of this skill (no network to EasyEDA).
 
@@ -105,3 +108,7 @@ The easyeda2kicad step was not run in the build environment of this skill (no ne
 - schgen: embedded-pro/e-psu-hardware and embedded-pro/e-inverted-pendulum-hardware `scripts/schgen` (D-020, D-033 there).
 - KiCad 10 schematic format: net-class directive labels (`netclass_flag`) as KiCad 10.0 writes them (read from e-foc, 2026-11-20).
 - docs/design.md D10, D16, D19.
+- [ASME-Y14.44] ASME Y14.44-2008 (reaffirmed 2024), *Reference Designations for Electrical and Electronics Parts and Equipment* (contents: class letters, App. A block numbering). https://webstore.ansi.org/standards/asme/asmey14442008r2024 ; IEEE 200-1975 status withdrawn: https://standards.ieee.org/standard/200-1975.html
+- [IPC-2612] IPC-2612 (2010), *Sectional Requirements for Electronic Diagramming Documentation* (contents: net naming, spares, power and ground table, bypass capacitors). Preview: https://webstore.ansi.org/preview-pages/IPC/preview_IPC+2612-2010.pdf
+- [IPC-7352] IPC-7352 (May 2023), *Generic Guideline for Land Pattern Design* (contents: courtyard, naming, zero orientation). https://www.electronics.org/TOC/IPC-7352-TOC.pdf
+- [KLC] KiCad Library Conventions, F5.3 courtyard (IPC-7351 based). https://klc.kicad.org/footprint/f5/f5.3/

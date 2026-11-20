@@ -1,0 +1,13 @@
+{
+  "extraKnownMarketplaces": {
+    "hardware-skills": {
+      "source": {
+        "source": "github",
+        "repo": "gabrielfrasantos/claude-hardware-skills"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "hardware-design@hardware-skills": true
+  }
+}

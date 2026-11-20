@@ -1,0 +1,13 @@
+# Firmware pin needs for {{NAME}} (pcb-placement pins.py). One function per line, named like its net:
+#   function       signals                                   group
+# signals: alternate functions with * and {x} placeholders (one instance per group), GPIO, EXTI, or an exact pin.
+# In a group, alternatives line up by position. NET~2 is a second pin on NET.
+#
+# Examples (delete them):
+# IMU_SCK        SPI{n}_SCK                                 imu
+# IMU_MISO       SPI{n}_MISO                                imu
+# IMU_MOSI       SPI{n}_MOSI                                imu
+# IMU_INT        EXTI
+# VBAT_SENSE     ADC1_IN*
+# SWDIO          SYS_JTMS-SWDIO
+# SWCLK          SYS_JTCK-SWCLK

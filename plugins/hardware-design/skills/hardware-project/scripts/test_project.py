@@ -1,0 +1,129 @@
+#!/usr/bin/env python3
+"""Self-test for the hardware-project scripts. Run: python3 test_project.py (no KiCad or network needed)."""
+import contextlib
+import io
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+import unittest
+
+HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import project  # noqa: E402
+import scaffold  # noqa: E402
+import trace  # noqa: E402
+
+ARGS = ["--name", "motor-ctl", "--title", "motor-ctl: test", "--firmware", "acme/motor-fw", "--owner", "acme"]
+
+
+def quiet(fn, *a):
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        code = fn(*a)
+    return code, out.getvalue()
+
+
+class Project(unittest.TestCase):
+    def test_root_and_board(self):
+        d = pathlib.Path(tempfile.mkdtemp()).resolve()
+        (d / "hardware" / "b1").mkdir(parents=True)
+        (d / "hardware" / "b1" / "b1.kicad_pro").write_text("{}")
+        (d / "hardware" / "lib").mkdir()
+        (d / "hardware" / "lib" / "other.kicad_pro").write_text("{}")      # name does not match its folder
+        subprocess.run(["git", "init", "-q", str(d)], check=True)
+        cwd = os.getcwd()
+        try:
+            os.chdir(d / "hardware")
+            self.assertEqual(project.root(), d)
+            self.assertEqual(project.boards(), ["b1"])
+            self.assertEqual(project.default_board(), "b1")
+            os.environ["HW_BOARD"] = "b2"
+            self.assertEqual(project.default_board(), "b2")
+        finally:
+            os.environ.pop("HW_BOARD", None)
+            os.chdir(cwd)
+
+
+class Trace(unittest.TestCase):
+    def repo(self, reqs, decs):
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "docs").mkdir()
+        (d / "docs" / "requirements.md").write_text("| ID | R | Source | Verify |\n|---|---|---|---|\n" + reqs)
+        (d / "docs" / "decisions.md").write_text("| ID | D | Rejected | Why |\n|---|---|---|---|\n" + decs)
+        return d
+
+    def test_clean(self):
+        d = self.repo("| HW-PWR-001 | 12 V | D-001 | R, S1 |\n| HW-RF-001 | link | REQ-BLE-001 | B (VNA, RSSI) |\n",
+                      "| D-001 | 3S | 2S | why |\n")
+        r = trace.check(d)
+        self.assertEqual((r["requirements"], r["decisions"], r["errors"]), (2, 1, []))
+
+    def test_errors_and_warnings(self):
+        d = self.repo("| HW-PWR-001 | a | D-002 | R |\n| HW-PWR-001 | b | D-009 | X |\n| HW-IF-001 | c |  | R |\n",
+                      "| D-001 | x | y | z. **Superseded by D-002 (2026-11-13).** |\n| D-002 | x | y | z |\n| D-002 | dup | | |\n")
+        r = trace.check(d)
+        text = "\n".join(r["errors"])
+        for want in ("HW-PWR-001 also on line", "cites D-009", "verification 'X'", "HW-IF-001 has no source",
+                     "D-002 also on line"):
+            self.assertIn(want, text)
+        d = self.repo("| HW-PWR-001 | a | D-001 | R |\n", "| D-001 | x | y | Superseded by D-002 |\n| D-002 | x | y | z |\n")
+        self.assertTrue(any("superseded by D-002" in w for w in trace.check(d)["warnings"]))
+
+    def test_firmware_ids(self):
+        d = self.repo("| HW-DRV-001 | a | REQ-DRIVE-002, REQ-DRIVE-099 | R |\n", "")
+        fw = pathlib.Path(tempfile.mkdtemp())
+        (fw / "req.yaml").write_text("- id: REQ-DRIVE-002\n")
+        errors = trace.check(d, fw)["errors"]
+        self.assertEqual(len(errors), 1)
+        self.assertIn("REQ-DRIVE-099", errors[0])
+
+
+class Scaffold(unittest.TestCase):
+    def test_new_repo(self):
+        d = pathlib.Path(tempfile.mkdtemp()) / "repo"
+        code, out = quiet(scaffold.main, [str(d)] + ARGS)
+        self.assertEqual(code, 0)
+        for f in ("CLAUDE.md", ".gitignore", ".claude/settings.json", ".claude/agents/motor-ctl-board-reviewer.md",
+                  "docs/requirements.md", "docs/plan.md", "pin-data/pin-needs.txt", "scripts/schgen/config.py"):
+            self.assertTrue((d / f).exists(), f)
+        self.assertTrue((d / "hardware" / "motor-ctl").is_dir())
+        for f in d.rglob("*"):
+            if f.is_file():
+                self.assertNotIn("{{", f.read_text(), f)
+        self.assertEqual(json.loads((d / ".claude" / "settings.json").read_text())["enabledPlugins"],
+                         {"hardware-design@hardware-skills": True})
+        self.assertIn("name: motor-ctl-board-reviewer", (d / ".claude/agents/motor-ctl-board-reviewer.md").read_text())
+        self.assertEqual(trace.check(d)["errors"], [])
+
+    def test_never_overwrites(self):
+        d = pathlib.Path(tempfile.mkdtemp())
+        (d / "CLAUDE.md").write_text("mine")
+        code, out = quiet(scaffold.main, [str(d)] + ARGS)
+        self.assertEqual((d / "CLAUDE.md").read_text(), "mine")
+        self.assertIn("= kept CLAUDE.md", out)
+
+    def test_refuses_bad_input(self):
+        with self.assertRaises(SystemExit):
+            quiet(scaffold.main, ["/tmp/x", "--name", "Bad_Name", "--title", "t", "--firmware", "f"])
+        with self.assertRaises(SystemExit):
+            quiet(scaffold.main, ["/tmp/x", "--name", "ok", "--title", "t", "--firmware", "f", "--fab", "nofab"])
+
+
+class Scripts(unittest.TestCase):
+    def test_help_runs_without_kicad(self):
+        names = ["export_review", "export_jlcpcb", "export_release", "export_bom", "jlc_stock", "fetch_datasheet"]
+        try:
+            import pymupdf  # noqa: F401
+            names.append("visual_diff")
+        except ImportError:
+            pass
+        for name in names:
+            r = subprocess.run([sys.executable, str(HERE / f"{name}.py"), "--help"], capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, f"{name}: {r.stderr[-300:]}")
+
+
+if __name__ == "__main__":
+    unittest.main()

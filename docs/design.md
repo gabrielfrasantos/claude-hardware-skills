@@ -79,7 +79,7 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
 1. Eval harness (generic, here) and the pendulum placement case (in its repo). Done.
 2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only). Done.
 3. `pcb-copper` net classes. Done; the scripted copper of D17 follows after placement.
-4. `pcb-placement` with its gate and optimizer (done: beats the owner's pendulum placement on ratsnest, crossings and decoupling distance, but not on intent the board does not encode, so the owner's review stays), then pin assignment.
+4. `pcb-placement` with its gate and optimizer (done: beats the owner's pendulum placement on ratsnest, crossings and decoupling distance, but not on intent the board does not encode, so the owner's review stays), then pin assignment (done: `pins.py`, Hungarian assignment over peripheral instances; the firmware's needs as text, the pin map as text).
 5. `hardware-project`, `schematic-capture`, `reference-block`, `power-circuit-design`.
 
 ## 7. Board repos (D27)

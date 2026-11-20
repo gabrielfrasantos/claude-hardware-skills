@@ -80,7 +80,7 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
 2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only). Done.
 3. `pcb-copper` net classes. Done; the scripted copper of D17 follows after placement.
 4. `pcb-placement` with its gate and optimizer (done: beats the owner's pendulum placement on ratsnest, crossings and decoupling distance, but not on intent the board does not encode, so the owner's review stays), then pin assignment (done: `pins.py`, Hungarian assignment over peripheral instances; the firmware's needs as text, the pin map as text).
-5. `hardware-project`, `schematic-capture`, `reference-block`, `power-circuit-design`.
+5. `schematic-capture` (done: schgen ported, byte-identical on e-inverted-pendulum; pin-map and net-class helpers; library check), then `hardware-project`, `reference-block`, `power-circuit-design`.
 
 ## 7. Board repos (D27)
 

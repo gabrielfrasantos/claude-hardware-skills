@@ -3,25 +3,30 @@
 
     pcb_rules.py profiles
     pcb_rules.py apply  <board.kicad_pcb | project.kicad_pro> --fab jlcpcb[,seeed] [--layers N] [--netclasses]
-    pcb_rules.py check  <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor]
+                        [--stackup SIG,GND,PWR,SIG] [--no-teardrops] [--teardrop-exclude REGEX]
+    pcb_rules.py check  <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor] [--no-copper]
                         [--gate NAME=LIMIT] [--report r.md] [--json r.json]
 
 apply   writes the fab's minimums into the project's Board Setup constraints, a managed block of custom
         rules into <project>.kicad_dru (fab rules Board Setup has no field for, plus the 45-degree corner
         rule), forces the copper-safety checks to error severity, optionally raises the Default net class
-        to the design values, and sets the solder-mask minimum web in the board's setup. It then proves
-        KiCad loads the rules file (KiCad silently ignores a rules file it cannot parse).
+        to the design values, sets the solder-mask minimum web in the board's setup, turns teardrops on for
+        every netted pad and via (and as the project default), and records the stack-up's layer roles. It
+        then proves KiCad loads the rules file (KiCad silently ignores a rules file it cannot parse).
 
 check   shorts and clearance: KiCad DRC on a temporary copy of the project with every copper-safety check
         forced to error, DRC exclusions of those checks removed, and all errors per track reported; then a
         fab-floor pass that flags copper and holes below the fab's absolute minimum whatever the project's
         rules say. Plus the geometry checks DRC cannot do: off-grid angles, 90-degree corners, junctions,
-        jogs, segments and vias per connection, detours, layer direction.
+        jogs, segments and vias per connection, detours, layer direction. And the copper (copper.py):
+        teardrops, unfilled zones, islands, necks, ground-plane splits, unstitched ground, stitching
+        distance, and signals over gaps in their reference plane.
         Exit status 1 when a hard gate fails, so it can gate CI.
 
-KiCad 8+ kicad-cli is needed for DRC (--kicad-cli or $KICAD_CLI). With --no-drc the script parses the
-.kicad_pcb itself (KiCad 7-10 formats): geometry gates plus a copper short/clearance check between tracks,
-vias and pads (zones and custom-shaped pads need KiCad). Python 3 standard library only.
+KiCad 10 or later only (older board files are refused). kicad-cli is needed for DRC (--kicad-cli or
+$KICAD_CLI). With --no-drc the script parses the .kicad_pcb itself: geometry and copper gates plus a
+short/clearance check between tracks, vias and pads (zones and custom-shaped pads need KiCad).
+The copper checks need shapely, numpy and scipy (`pip install shapely scipy`); --no-copper skips them.
 """
 import argparse
 import fnmatch
@@ -62,6 +67,16 @@ GATES = {
     "segments_per_connection_p90": ("soft", 8.0),
     "vias_per_connection_max": ("soft", 4.0),
     "detour_p90": ("soft", 1.6),
+    # copper (copper.py)
+    "teardrops_disabled": ("hard", 0),        # pads/vias with a track on them and teardrops off
+    "teardrops_missing": ("soft", 0),         # teardrops on but not drawn (KiCad skips a few on its own)
+    "zone_unfilled": ("hard", 0),             # copper zones with no fill in the file
+    "zone_islands": ("hard", 0),              # fill pieces touching nothing of their net
+    "zone_necks": ("hard", 0),                # fill narrower than the net's track width between two parts
+    "gnd_plane_splits": ("hard", 0),          # a GND-role layer whose main ground fill is not one piece
+    "unstitched_ground": ("hard", 0),         # ground fill pieces with no via or THT pad of their net
+    "gnd_via_max_distance_mm": ("soft", 3.6), # half-diagonal of a 200 mil (5.08 mm) stitching grid (derived)
+    "signal_over_plane_gap_mm": ("soft", 0),  # signal track length over a gap in its reference plane
 }
 ANGLE_TOL = 0.5     # degrees
 DRC_EPSILON = 0.0005  # mm; gaps this close to the limit pass, as in KiCad's DRC (matched on e-psu)
@@ -221,16 +236,29 @@ def pad_shape(x, y, rot, w, h, kind, rratio):
 
 
 # ----------------------------------------------------------------------------------------------- board
+MIN_FILE_VERSION = 20250000   # KiCad 9.0 writes 20241229; KiCad 10 boards are newer. Older files are refused (D4).
+
+
+def _teardrops(node):
+    td = child(node, "teardrops")
+    en = child(td, "enabled") if td else None
+    fr = child(td, "filter_ratio") if td else None
+    pz = child(td, "prefer_zone_connections") if td else None
+    return dict(enabled=bool(en and en[1] == "yes"), filter_ratio=float(fr[1]) if fr else 0.9,
+                prefer_zone=not (pz and pz[1] == "no"))
+
+
 class Board:
     def __init__(self, path=None, text=None):
         if text is None:
             with open(path, encoding="utf-8") as f:
                 text = f.read()
         root = parse_sexpr(text)
-        self.net_names = {}
-        for n in children(root, "net"):
-            if len(n) >= 3:
-                self.net_names[n[1]] = n[2]
+        self.root = root
+        ver = child(root, "version")
+        if not ver or int(ver[1]) < MIN_FILE_VERSION:
+            raise SystemExit(f"{path or 'board'}: file version {ver[1] if ver else '?'} is older than KiCad 10. "
+                             "Open it in KiCad 10 and save it; this script supports KiCad 10 and later only.")
         self.copper_layers = []
         lay = child(root, "layers")
         for entry in lay[1:] if lay else []:
@@ -254,23 +282,18 @@ class Board:
             elif kind == "via":
                 at, lays = child(node, "at"), child(node, "layers")
                 self.vias.append(dict(x=float(at[1]), y=float(at[2]), net=self._net(node),
-                                      d=float(child(node, "size")[1]),
+                                      d=float(child(node, "size")[1]), td=_teardrops(node),
                                       layers=self._span(lays[1:] if lays else ["F.Cu", "B.Cu"])))
             elif kind == "zone":
-                nn = child(node, "net_name")
-                self.zone_nets.add(nn[1] if nn else self._net(node))
+                attr = child(node, "attr")
+                if not child(node, "keepout") and not (attr and child(attr, "teardrop")):   # pours only
+                    self.zone_nets.add(self._net(node))
             elif kind == "footprint":
                 self._footprint(node)
 
     def _net(self, node):
-        n = child(node, "net")
-        if not n or len(n) < 2:
-            return ""
-        if len(n) >= 3:                       # (net 12 "name") in footprints/pads (KiCad 7)
-            name = n[2]
-        else:
-            name = self.net_names.get(n[1], n[1])   # (net 12) -> table, (net "name") KiCad 10
-        return name.replace("{slash}", "/")
+        n = child(node, "net")                # KiCad 10: (net "name") on every item
+        return n[1].replace("{slash}", "/") if n and len(n) > 1 else ""
 
     def _span(self, ends):
         idx = [self.copper_layers.index(l) for l in ends if l in self.copper_layers]
@@ -314,7 +337,7 @@ class Board:
             y = fy - dx * s + dy * c
             self.pads.append(dict(x=x, y=y, r=max(w, h) / 2, w=w, h=h, rot=prot, shape=pad[3] if len(pad) > 3 else "rect",
                                   rratio=float(rr[1]) if rr else 0.25, net=self._net(pad), ref=ref, num=pad[1],
-                                  kind=pad[2], layers=self._pad_layers(lays[1:] if lays else [])))
+                                  kind=pad[2], layers=self._pad_layers(lays[1:] if lays else []), td=_teardrops(pad)))
 
 
 # ----------------------------------------------------------------------------------------------- geometry
@@ -577,13 +600,21 @@ def find_cli(arg):
     return None
 
 
-def run_drc(cli, board, refill=True, parity=True):
+def supports_save(cli):
+    """Whether this kicad-cli can save the board after DRC (so check can measure freshly refilled zones)."""
+    r = subprocess.run([cli, "pcb", "drc", "--help"], capture_output=True, text=True)
+    return "--save-board" in (r.stdout + r.stderr)
+
+
+def run_drc(cli, board, refill=True, parity=True, save=False):
     out = tempfile.NamedTemporaryFile(suffix=".json", delete=False).name
     # --all-track-errors: by default KiCad reports only the first error on each track, so a short can hide
     # behind any other violation on the same track.
     args = [cli, "pcb", "drc", "--format", "json", "--severity-all", "--all-track-errors", "-o", out]
     if refill:
         args.append("--refill-zones")
+        if save:
+            args.append("--save-board")
     sch = os.path.splitext(board)[0] + ".kicad_sch"
     if parity and os.path.exists(sch):
         args.append("--schematic-parity")
@@ -646,6 +677,31 @@ def floor_rules(fab_min):
     ]) + "\n"
 
 
+def _managed(dru_path, key):
+    if not os.path.exists(dru_path):
+        return None
+    with open(dru_path) as f:
+        m = re.search(r"^# " + key + r": (.*)$", f.read(), flags=re.M)
+    return m.group(1).strip() if m else None
+
+
+def managed_roles(dru_path):
+    """Layer roles recorded by `apply` ({layer: role}), or None."""
+    v = _managed(dru_path, "stackup")
+    return dict(kv.split("=", 1) for kv in v.split()) if v else None
+
+
+def managed_teardrops(dru_path):
+    """(teardrops on?, exclude regex or None) recorded by `apply`; (True, None) when not recorded."""
+    v = _managed(dru_path, "teardrops")
+    if not v:
+        return True, None
+    if v.startswith("off"):
+        return False, None
+    m = re.search(r"off for nets matching (.+)$", v)
+    return True, (m.group(1) if m else None)
+
+
 def managed_fabs(dru_path):
     """Fabs recorded by `apply` in the managed block header, or []."""
     if not os.path.exists(dru_path):
@@ -666,7 +722,7 @@ def project_paths(path):
     return base + ".kicad_pro", base + ".kicad_pcb", base + ".kicad_dru"
 
 
-def dru_block(fab_min, fabs, layers, low_classes):
+def dru_block(fab_min, fabs, layers, low_classes, roles=None, teardrops=None):
     """Custom rules for fab limits that Board Setup has no field for, plus the corner rule.
 
     Two KiCad behaviours shape this block (both verified on KiCad 10.0.6):
@@ -679,7 +735,12 @@ def dru_block(fab_min, fabs, layers, low_classes):
     mm = lambda v: f"{v:g}mm"
     pad_pad = max(fab_min["smd_pad_to_pad"], fab_min["clearance"])
     lines = [f"{BEGIN} ({'+'.join(fabs)}, {'2' if layers <= 2 else '4+'} layers). Re-run pcb_rules.py apply to change;",
-             "# rules you add below this block override it.",
+             "# rules you add below this block override it."]
+    if roles:
+        lines.append("# stackup: " + " ".join(f"{l}={r}" for l, r in roles.items()))
+    if teardrops is not None:
+        lines.append("# teardrops: " + teardrops)
+    lines += [
              '(rule "fab: plated pad annular ring"',
              "  (condition \"A.Type == 'Pad' && A.Pad_Type == 'Through-hole'\")",
              f"  (constraint annular_width (min {mm(fab_min['pth_annular'])})))",
@@ -792,20 +853,42 @@ def cmd_apply(a):
                 nc["clearance"] = max(nc.get("clearance", 0), design["clearance"])
                 nc["via_drill"] = max(nc.get("via_drill", 0), design["via_drill"])
                 nc["via_diameter"] = max(nc.get("via_diameter", 0), design["via_diameter"])
+    import copper
+    if not a.no_teardrops:
+        copper.set_teardrop_options(pj)
     with open(pro, "w") as f:
         json.dump(pj, f, indent=2)
         f.write("\n")
     pad_pad = max(fab_min["smd_pad_to_pad"], fab_min["clearance"])
     low = [nc["name"] for nc in pj.get("net_settings", {}).get("classes", [])
            if nc.get("clearance") is not None and nc["clearance"] < pad_pad - 1e-9]
-    write_dru(dru, dru_block(fab_min, fabs, layers, low))
+    cu = Board(board).copper_layers if os.path.exists(board) else []
+    if a.stackup:
+        want = [r.strip().upper() for r in a.stackup.split(",")]
+        if len(want) != len(cu) or not set(want) <= {"SIG", "GND", "PWR"}:
+            sys.exit(f"--stackup needs {len(cu)} roles from SIG, GND, PWR (top to bottom), got {a.stackup}")
+        roles = dict(zip(cu, want))
+    else:
+        roles = copper.roles_for(cu)
+    td = "off" if a.no_teardrops else ("on" + (f", off for nets matching {a.teardrop_exclude}" if a.teardrop_exclude else ""))
+    write_dru(dru, dru_block(fab_min, fabs, layers, low, roles, td))
     web_ok = os.path.exists(board) and set_mask_web(board, fab_min["mask_bridge"])
+    td_changed = 0
+    if os.path.exists(board) and not a.no_teardrops:
+        with open(board, encoding="utf-8") as f:
+            text, td_changed = copper.set_teardrops(f.read(), a.teardrop_exclude)
+        with open(board, "w", encoding="utf-8") as f:
+            f.write(text)
     print(f"applied {'+'.join(fabs)} ({layers} copper layers) to {os.path.basename(pro)}")
     for n in notes:
         print("  source:", n)
     print(f"  constraints: track {fab_min['track']} / clearance {fab_min['clearance']} / via {fab_min['via_drill']}/{fab_min['via_diameter']} "
           f"/ edge {fab_min['edge_clearance']} mm; mask web {fab_min['mask_bridge']} mm{' (board setup)' if web_ok else ' (set it in Board Setup)'}")
     print(f"  copper-safety checks set to error: {', '.join(COPPER_SAFETY)}; corners: track_angle min {MIN_CORNER}")
+    print("  stack-up roles: " + (" ".join(f"{l}={r}" for l, r in roles.items()) if roles
+                                  else f"none (no template for {len(cu)} layers: pass --stackup)"))
+    print(f"  teardrops: {td}" + ("" if a.no_teardrops else f"; {td_changed} pad/via flag(s) changed. Draw them in KiCad: "
+                                  "Edit > Edit Teardrops (Apply), then save; check confirms they exist"))
     print(f"  design values for net classes: track {design['track']} / clearance {design['clearance']} / via {design['via_drill']}/{design['via_diameter']} mm"
           + ("" if a.netclasses else "  (use --netclasses to write them to Default)"))
     cli = find_cli(a.kicad_cli)
@@ -833,6 +916,7 @@ def cmd_check(a):
     fab_min = combined_rules(fabs, len(b.copper_layers))[0] if fabs else None
     lines = [f"# PCB rules check: {os.path.basename(board)}", ""]
     failures, warnings, drc_info, copper = [], [], None, {}
+    copper_board, copper_src = b, "the fills saved in the file"
 
     if not a.no_drc:
         cli = find_cli(a.kicad_cli)
@@ -841,7 +925,10 @@ def cmd_check(a):
         tmp, copy = project_copy(board)
         try:
             removed = force_copper_safety(os.path.splitext(copy)[0] + ".kicad_pro")
-            data = run_drc(cli, copy, refill=not a.no_refill)
+            save = not a.no_refill and not a.no_copper and supports_save(cli)
+            data = run_drc(cli, copy, refill=not a.no_refill, save=save)
+            if save:
+                copper_board, copper_src = Board(copy), "zones refilled by KiCad on a copy"
             floor = None
             if fab_min and not a.no_floor:
                 with open(os.path.splitext(copy)[0] + ".kicad_dru", "w") as f:
@@ -906,6 +993,26 @@ def cmd_check(a):
                 lines += [f"- {v['a']} / {v['b']} on {v['layer']}: gap {v['gap']:g} mm near {v['near']}" for v in vs[:15]]
                 lines.append("")
 
+    if not a.no_copper:
+        import copper as cu
+        td_on, td_ex = managed_teardrops(dru)
+        cm, cex, cinfo = cu.report(copper_board, pro, managed_roles(dru), td_ex, td_on)
+        metrics.update(cm)
+        roles = cinfo["roles"]
+        lines += ["## Copper: teardrops, pours, planes", "",
+                  f"Measured on {copper_src}: {cinfo['zones']} copper zones, {cinfo['teardrop_zones']} teardrops. "
+                  "Stack-up roles: " + (" ".join(f"{l}={r}" for l, r in roles.items()) if roles else "unknown (pass --stackup to apply)")
+                  + ("; references: " + ", ".join(f"{l} → {r}" for l, r in cinfo["references"].items()) if cinfo["references"] else "")
+                  + (f". Teardrops: off for nets matching `{td_ex}`." if td_ex else "") + ("" if td_on else ". Teardrops: not used (apply --no-teardrops)."),
+                  ""]
+        for k, ex in cex.items():
+            if ex:
+                lines.append(f"**{k}** (first {len(ex)})")
+                lines += [f"- {e}" for e in ex]
+                lines.append("")
+    else:
+        lines += ["## Copper", "", "Not run (`--no-copper`).", ""]
+
     lines += ["## Gates", "", "| Metric | Value | Gate | Result |", "|---|---|---|---|"]
     for k, (kind, limit) in GATES.items():
         val = metrics.get(k)
@@ -964,6 +1071,9 @@ def main():
     p.add_argument("--netclasses", action="store_true", help="raise the Default net class to the design values")
     p.add_argument("--kicad-cli")
     p.add_argument("--no-validate", action="store_true")
+    p.add_argument("--stackup", help="layer roles top to bottom, e.g. SIG,GND,PWR,SIG (default: the template for the layer count)")
+    p.add_argument("--no-teardrops", action="store_true", help="leave teardrop flags alone and skip the teardrop gates")
+    p.add_argument("--teardrop-exclude", metavar="REGEX", help="nets that must not get teardrops (e.g. RF lines: 'RF|ANT')")
     c = sub.add_parser("check", help="shorts/clearance + DRC + layout-quality gate")
     c.add_argument("board")
     c.add_argument("--fab", help="fab profile(s) for the fab-floor check (default: the ones `apply` recorded)")
@@ -971,6 +1081,7 @@ def main():
     c.add_argument("--no-drc", action="store_true", help="geometry checks only (no KiCad needed)")
     c.add_argument("--no-floor", action="store_true", help="skip the fab-floor DRC pass")
     c.add_argument("--no-refill", action="store_true")
+    c.add_argument("--no-copper", action="store_true", help="skip the teardrop, pour and plane checks")
     c.add_argument("--allow-unrouted", action="store_true", help="do not fail on unconnected items (layout in progress)")
     c.add_argument("--gate", action="append", metavar="NAME=LIMIT", help="override a gate limit, e.g. --gate track_junctions=4")
     c.add_argument("--report", help="write the Markdown report here")

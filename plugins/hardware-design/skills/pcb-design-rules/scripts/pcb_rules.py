@@ -990,8 +990,10 @@ def cmd_check(a):
                    "Fab floor: not run (no fab known: run `apply` or pass `--fab`)."), "",
                   f"- shorts: **{len(shorts)}**", f"- clearance and copper-safety violations: **{len(clear)}**",
                   f"- below the fab minimum: **{'n/a' if floor is None else len(floor)}**", ""]
-        for title, vs in (("Shorts", shorts), ("Clearance", clear), ("Below fab minimum", floor or [])):
+        for key, title, vs in (("shorts", "Shorts", shorts), ("clearance_violations", "Clearance", clear),
+                               ("below_fab_minimum", "Below fab minimum", floor or [])):
             if vs:
+                examples[key] = [_violation_row(v) for v in vs[:15]]     # into --json: a finding needs its location
                 lines.append(f"**{title}** (first {min(len(vs), 15)} of {len(vs)})")
                 lines += [f"- {_violation_row(v)}" for v in vs[:15]]
                 lines.append("")
@@ -1013,8 +1015,9 @@ def cmd_check(a):
                   + (f"the {'+'.join(fabs)} minimum {limit:g} mm = violation." if fab_min else "nothing checked (no fab known: pass `--fab`).")
                   + " Zones, net-class clearances and custom-shaped pads need KiCad DRC.", "",
                   f"- shorts: **{len(sh)}**", f"- gaps below the fab minimum: **{len(gp) if fab_min else 'n/a'}**", ""]
-        for title, vs in (("Shorts", sh), ("Gaps", gp)):
+        for key, title, vs in (("shorts", "Shorts", sh), ("clearance_violations", "Gaps", gp)):
             if vs:
+                examples[key] = [f"{v['a']} / {v['b']} on {v['layer']}: gap {v['gap']:g} mm near {v['near']}" for v in vs[:15]]
                 lines.append(f"**{title}** (first {min(len(vs), 15)} of {len(vs)})")
                 lines += [f"- {v['a']} / {v['b']} on {v['layer']}: gap {v['gap']:g} mm near {v['near']}" for v in vs[:15]]
                 lines.append("")

@@ -1,6 +1,6 @@
 # Design: from rules library to workflow and generation
 
-Status: agreed 2026-11-20 (design session, decisions D1–D30 below; D31–D36 since, §8). This file is the plan the skills and tools are built
+Status: agreed 2026-11-20 (design session, decisions D1–D30 below; D31–D36 since, §8; what is missing, §9). This file is the plan the skills and tools are built
 against. Change it with a new decision, not silently.
 
 ## 1. Goal
@@ -102,3 +102,90 @@ The audit (`docs/research/best-practices-audit.md`) checked the skills against p
 | D36 Review | Reviewing is a skill of its own (`design-review`): `review.py` runs every scripted check on any KiCad 10 project into one findings file, the schematic checks run on the netlist (board + schematic symbols offline, or KiCad's netlist), and a plugin-level `board-reviewer` agent triages the findings and reviews against the datasheets from the netlist, not from PDF pictures. Review quality is measured by seeding defects into real boards (`evals/review_defects.py`). |
 
 Built from the audit's gaps, in a separate PR: JLCPCB package-pair assembly spacing, edge keep-outs, fiducials and orientation in the placement gate; a footprint-vs-LCSC-package check; BOM lifecycle in `jlc_stock.py`.
+
+## 9. What is missing (2026-11-20, after v0.1 scope)
+
+Every skill in §3 is built, and 123 tests pass on synthetic KiCad 10 files and parsed real boards. Three things are
+still missing before the plugin can be called done:
+
+1. **It has never run against KiCad itself.** The environment it was built in has no KiCad 10.
+2. **It has never been measured** against the goal in §1 ("measured, not felt").
+3. **Part of goal 3 (generation, D17) isn't built.**
+
+The phases below close them in order. Each ends at a gate the owner signs off, as for a board.
+
+### Phase A: housekeeping (owner, ~10 min)
+
+| # | Item | Why | Done when |
+|---|---|---|---|
+| A1 | *Settings → Actions → General → Workflow permissions*: allow GitHub Actions to create pull requests | release-please fails without it (run on 5d3e907: "not permitted to create or approve pull requests") | the release PR for v0.1.0 exists |
+| A2 | Merge the release PR | D29: CI pins tags; the plugin version is set from them | tag `v0.1.0`, CHANGELOG on `main` |
+| A3 | Repo description and topics (About panel) | the API proxy refuses settings writes | description no longer reads "harware" |
+
+### Phase B: KiCad 10 validation (Claude prepares, the owner runs on a machine with KiCad 10)
+
+Every script that writes a KiCad file has only been checked by re-parsing its output. A kit
+(`evals/validate_kicad.py`, #14) runs each step on a **copy** of the pendulum, then `kicad-cli` loads, DRCs
+and ERCs every result and collects one report. If the owner links this conversation to the computer (Claude
+desktop app, "Add folder"), Claude can run it there.
+
+| # | Step | Pass criterion |
+|---|---|---|
+| B1 | `pcb_rules.py apply` | prints `loads OK`; KiCad opens the board; the teardrop flags show in *Board Setup*; *Edit Teardrops* draws them |
+| B2 | `pcb_rules.py check` with KiCad (DRC, fab floor, `--save-board` refill) | runs; counts match the GUI's DRC on the same file |
+| B3 | `netclasses.py apply` | the classes appear in *Board Setup → Net Classes* with the computed widths |
+| B4 | `place.py optimize`, `pins.py assign` | the board opens, parts where the report says; the pin map rebuilds the schematic (`schgen`) |
+| B5 | `schgen.py build / check / equivalence` | ERC clean; `check` passes; byte-identical rebuild |
+| B6 | `refblock.py import` (TI PcbDoc in the pendulum's `reference/`), `extract`, `place` | the import opens; the pasted board opens with the group; DRC shows only the expected vendor findings |
+| B7 | `review.py` with `kicad-cli` | the netlist export parses, and its nets equal the board model's; ERC findings parsed |
+| B8 | `export_review / export_jlcpcb / export_release / visual_diff` | packages complete; JLCPCB's viewer accepts Gerbers, BOM and CPL rotations |
+| B9 | Network: `jlc_stock.py` (packages, lifecycle) on the pendulum BOM, `fetch_datasheet.py`, `easyeda2kicad` | real responses parsed; package check: no false mismatch on the pendulum BOM |
+
+Gate B: every row passes or has an issue filed with the fix; the KiCad version is recorded.
+
+### Phase C: first real user, e-inverted-pendulum (D27)
+
+| # | Item | Owner decision needed |
+|---|---|---|
+| C1 | Replace the pendulum's copied scripts with the plugin's (`scripts/pcb/*`, export scripts) | which copied scripts may go |
+| C2 | Standard net classes on the schematic (`PWR_<I>A`, `GND`, ...), `netclasses.py apply`; `pcb_rules.py apply` with its stack-up recorded | the pendulum's own classes (SUPPLY, PWR_BUS, GATE, SWITCH, CRYSTAL, ...) map to which standard ones |
+| C3 | `review.py` on it; findings triaged into its issue tracker. Known so far: R701 0.68 mm from a QFN, no fiducials, In2.Cu ground in 5 pieces, four 25 V capacitors on the 12.6 V bus | each finding: fix or accepted deviation |
+| C4 | TI-derived `scripts/pcb/boost_drv8711.json` | licence decision (D35): keep committed, or move to `reference/` |
+
+Gate C: the pendulum's CI runs the plugin's gates at a pinned tag; no copied script left that the plugin replaces.
+
+### Phase D: measure (paid model runs, run by hand)
+
+| # | Eval | Pass criterion |
+|---|---|---|
+| D1 | Placement: `evals/run.py` on the pendulum case, with and without the plugin, 3 runs each | D25: no worse than the owner's placement +10 % on ratsnest and crossings; then the placement gate's limits are set and it can fail |
+| D2 | Review: `review_defects.py seed` on the pendulum, the board-reviewer agent reviews the seeded copy, `score --report` | recall of the seeded defects at MINOR or above; target to be set from the first run (proposal: ≥ 80 %) and each miss turned into a rule or method fix |
+| D3 | Review without the plugin (same seeded board, plain Claude) | the gap D2 − D3 is the plugin's value for review |
+
+Gate D: the numbers are in `docs/` with their dates and costs; the gates' limits come from them.
+
+### Phase E: generation (D17), decided with the numbers from D
+
+Not built: scripted fan-out, stitching vias, power copper and pours, simple routes, tidy. Placement, pins and
+schematics are generated; copper isn't. Options: build it (biggest remaining piece; needs B to have passed),
+build only stitching and pours (lowest risk, measurable by the copper gates), or drop it and leave routing to the
+owner and KiCad's router. **Owner decision.**
+
+### Phase F: backlog (when a board needs it)
+
+| Item | Note |
+|---|---|
+| e-foc migration branch (D27) | after C proves the path |
+| Gerber-only vendor references | the pendulum's `nfc_reference.py` approach as a tool |
+| Back-side land export, mirrored blocks | `reference-block` §6 |
+| Kelvin `SENSE` net-tie check | promised in D9 as "later" |
+| IPC-2221C, IPC-2152, IPC-9592B bought | replace the secondary transcriptions (clearance table, derating) with the standards' own values |
+| KiCad bug report | custom rule overrides the Board Setup minimum (`pcb-design-rules` §4), against the manual |
+| Altium schematics, KiCad < 10 boards in review | `design-review` §6 |
+| e-foc's `Vdrive` voltage | 12 V was an assumption for the review eval |
+
+### Decisions the owner owns in this plan
+
+A1–A3 (settings), C2 (class mapping), C4 (TI licence), D budget (D1 caps each run at the harness default of
+25 USD, so 3 runs × 2 configurations is at most 150 USD; D2/D3 are one review each), E (generation scope), and
+buying the IPC standards.

@@ -110,10 +110,11 @@ class Parsing(unittest.TestCase):
         self.assertAlmostEqual(p["x"], 10)
         self.assertAlmostEqual(p["y"], 9)
 
-    def test_kicad7_net_table(self):
-        text = ('(kicad_pcb (version 20221018) (net 0 "") (net 1 "VCC") (layers (0 "F.Cu" signal))\n'
-                '(segment (start 0 0) (end 1 0) (width 0.2) (layer "F.Cu") (net 1) (tstamp x)))')
-        self.assertEqual(pcb_rules.Board(text=text).segments[0]["net"], "VCC")
+    def test_older_than_kicad10_is_refused(self):
+        for version in ("20221018", "20241229"):          # KiCad 7, KiCad 9.0
+            text = f'(kicad_pcb (version {version}) (layers (0 "F.Cu" signal)))'
+            with self.assertRaises(SystemExit):
+                pcb_rules.Board(text=text)
 
 
 class Rules(unittest.TestCase):

@@ -1,0 +1,30 @@
+{
+  "title": "Layer roles per copper-layer count (top to bottom). SIG = signals (with ground fill), GND = solid ground plane, PWR = power plane (or ground).",
+  "fetched": "2026-11-20",
+  "rules": [
+    "Fast signals run over a solid ground plane, never across a split or void in it; TI does not recommend referencing high-speed signals to a power plane [SPRAAR7J 2.4].",
+    "A power plane next to a ground plane adds high-frequency bypass capacitance [SN75LVCP600S 11.1]."
+  ],
+  "layers": {
+    "2": {
+      "roles": ["SIG", "GND"],
+      "source": "(derived) from SPRAAR7J 2.4: with two layers the only reference a top-layer signal can have is a ground fill on the bottom layer, kept as unbroken as the routing allows."
+    },
+    "4": {
+      "roles": ["SIG", "GND", "PWR", "SIG"],
+      "source": "TI SN75LVCP600S datasheet 11.1 Layout Guidelines: at least four layers; a solid ground plane next to the high-speed signal layer, the power plane next to the ground plane."
+    },
+    "6": {
+      "roles": ["SIG", "GND", "SIG", "SIG", "PWR", "SIG"],
+      "source": "TI SPRAAR7J High-Speed Interface Layout Guidelines, Table 3-1 Example PCB Stackups (6-layer). The PWR layer is POWER/GROUND there; adjacent inner signal layers routed at 90 degrees to each other."
+    },
+    "8": {
+      "roles": ["SIG", "GND", "SIG", "SIG", "PWR", "SIG", "GND", "SIG"],
+      "source": "TI SPRAAR7J Table 3-1 (8-layer)."
+    }
+  },
+  "sources": {
+    "SPRAAR7J": "https://www.ti.com/lit/pdf/SPRAAR7 (revision J, February 2023), section 2.4 and Table 3-1",
+    "SN75LVCP600S": "https://www.ti.com/document-viewer/SN75LVCP600S/datasheet/layout, section 11.1"
+  }
+}

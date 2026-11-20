@@ -57,7 +57,7 @@ It writes the files above and **never overwrites** one that exists, so it also f
 
 ## 4. Review
 
-The scaffold writes `.claude/agents/<board>-board-reviewer.md`. It is read-only and reviews only the exported package (`export_review.py` → `review_exports/<board>/`: schematic PDF, BOM, ERC, DRC, design rules, Gerbers, PCB images):
+The scaffold writes `.claude/agents/<board>-board-reviewer.md`. It is read-only and reviews only the exported package (`export_review.py` → `review_exports/<board>/`: schematic PDF, BOM, ERC, DRC, design rules, Gerbers, PCB images, and `review/` from `design-review`: the scripted checks' `findings.json` and the netlist, which it triages first). Pass the supply voltages the net names don't state: `export_review.py --voltage VBAT=12.6`:
 - **Contract:** `docs/requirements.md`.
 - **Evidence:** `simulation/REPORT.md`.
 - **Intent:** `docs/decisions.md`.

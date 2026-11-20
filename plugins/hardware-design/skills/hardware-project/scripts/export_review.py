@@ -385,6 +385,23 @@ def _resolve_project(name: str | None, pcb: str | None) -> None:
     IMAGE_DIR = OUT_DIR / "pcb_views"
 
 
+def run_review(cli, voltages):
+    """The plugin's scripted checks (design-review skill) into OUT_DIR/review/: findings.json, review.md, netlist."""
+    review = Path(__file__).resolve().parents[2] / "design-review" / "scripts" / "review.py"
+    print("\n>>> Scripted checks (design-review)")
+    if not review.exists():
+        print("    [skip] design-review skill not found next to this one")
+        return
+    cmd = [sys.executable, str(review), str(PCB_FILE.with_suffix(".kicad_pro")), "--out", str(OUT_DIR / "review"),
+           "--kicad-cli", cli, "--skip", "stock"]
+    for v in voltages:
+        cmd += ["--voltage", v]
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    print("    " + (res.stdout.strip().splitlines() or ["(no output)"])[0])
+    if res.returncode:
+        print(f"    [warn] review.py exited {res.returncode}: {res.stderr.strip()[-300:]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Export a KiCad review package.")
     ap.add_argument("--kicad-cli", help="Path to kicad-cli")
@@ -393,6 +410,10 @@ def main() -> None:
     ap.add_argument("--pcb", help="Explicit path to a .kicad_pcb (overrides --name)")
     ap.add_argument("--skip-sch", action="store_true", help="Skip schematic exports")
     ap.add_argument("--skip-pcb", action="store_true", help="Skip PCB exports")
+    ap.add_argument("--no-review", action="store_true",
+                    help="Skip the scripted checks (design-review/review.py -> review/findings.json, netlist.net)")
+    ap.add_argument("--voltage", action="append", default=[], metavar="NET=V",
+                    help="a net's voltage for the scripted checks (repeatable)")
     args = ap.parse_args()
 
     _resolve_project(args.name, args.pcb)
@@ -415,6 +436,8 @@ def main() -> None:
         export_pcb(cli)
         export_pcb_images(cli)
         dump_design_rules()
+    if not args.no_review:
+        run_review(cli, args.voltage)
 
     print(f"\nDone. Review files in: {OUT_DIR}")
 

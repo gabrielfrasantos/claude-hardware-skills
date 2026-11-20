@@ -1,0 +1,369 @@
+#!/usr/bin/env python3
+"""review.py: review a KiCad 10 project's schematic and board with every check of the plugin, into one findings file.
+
+    review.py <project dir | .kicad_pro | .kicad_pcb | .kicad_sch> [--out DIR] [--voltage NET=V ...]
+              [--voltages volts.json] [--netlist file.net] [--kicad-cli PATH] [--fab jlcpcb] [--assembly jlcpcb]
+              [--blocks 'pcb/reference/*.block.json'] [--bom bom/bom.csv] [--skip NAME,...] [--fail-on MAJOR]
+
+Runs, each when its inputs exist (a check that can't run is listed as a NOTE with the reason):
+  schematic   this skill's checks on the design model (checks.py): decoupling, pull-ups, MCU pins, ratings,
+              orientation, connector ESD, dividers, test points
+  erc         KiCad ERC (kicad-cli)
+  library     symbol pins against footprint pads, BOM fields (schematic-capture/library_check.py)
+  rules       shorts, clearance, fab floor, geometry and copper gates (pcb-design-rules/pcb_rules.py check;
+              DRC when kicad-cli is there)
+  netclasses  net classes against current and voltage (pcb-copper/netclasses.py check)
+  placement   validity, ratsnest and assembly (pcb-placement/place.py gate, dfa.py)
+  blocks      copied vendor blocks still where the vendor has them (reference-block/refblock.py check)
+  stock       stock, packages, lifecycle (hardware-project/jlc_stock.py; network; only with --bom)
+
+Writes DIR/findings.json (every finding: id, severity, area, check, anchor, message, rule, tool) and DIR/review.md,
+and DIR/netlist.net when kicad-cli can export one. The reviewer agent starts from these. Default DIR:
+review_exports/<board>/review/. Report-only: exit 0 unless --fail-on BLOCKER|MAJOR|MINOR finds one at that level
+or above.
+
+The model comes from the board plus the schematics' symbols when there is a board (pin positions, no KiCad
+needed), else from a netlist (--netlist, or exported with kicad-cli), so a schematic can be reviewed before layout.
+"""
+
+import argparse
+import datetime
+import glob
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SKILLS = os.path.normpath(os.path.join(HERE, "..", ".."))
+sys.path.insert(0, HERE)
+import checks as C  # noqa: E402
+import design as D  # noqa: E402
+
+SEVERITY = ["BLOCKER", "MAJOR", "MINOR", "NOTE"]
+STEPS = ["schematic", "erc", "library", "rules", "netclasses", "placement", "blocks", "stock"]
+SAFETY = {"shorts", "clearance_violations", "below_fab_minimum"}
+HOUSE_STYLE = {"any_angle_segments", "right_angle_corners", "track_junctions", "jogs", "diagonal_length_pct",
+               "long_diagonals", "short_segment_pct", "segments_per_connection_p90", "detour_p90"}
+
+
+def script(skill, name):
+    return os.path.join(SKILLS, skill, "scripts", name)
+
+
+def find_project(path):
+    """(pro, board, schematic) from a project folder or any of its files; missing ones are None."""
+    path = os.path.abspath(path)
+    if os.path.isdir(path):
+        pros = sorted(glob.glob(os.path.join(path, "*.kicad_pro"))) or \
+            sorted(glob.glob(os.path.join(path, "hardware", "*", "*.kicad_pro"))) or \
+            sorted(glob.glob(os.path.join(path, "**", "*.kicad_pro"), recursive=True))
+        if not pros:
+            sys.exit(f"no .kicad_pro under {path}")
+        if len(pros) > 1:
+            sys.exit("several projects: " + ", ".join(os.path.relpath(p, path) for p in pros) + " (give one)")
+        stem = pros[0][:-len(".kicad_pro")]
+    else:
+        stem = os.path.splitext(path)[0]
+
+    def have(ext):
+        return stem + ext if os.path.exists(stem + ext) else None
+    return have(".kicad_pro"), have(".kicad_pcb"), have(".kicad_sch")
+
+
+def run(cmd, cwd=None):
+    r = subprocess.run([sys.executable] + cmd, capture_output=True, text=True, cwd=cwd)
+    return r.returncode, r.stdout + r.stderr
+
+
+def finding(severity, area, check, anchor, message, rule, tool):
+    return dict(severity=severity, area=area, check=check, anchor=anchor, message=message, rule=rule, tool=tool)
+
+
+def not_run(step, why):
+    return finding("NOTE", "review", step, "", f"{step} not run: {why}", "design-review §2", step)
+
+
+# ------------------------------------------------------------------------------------------------ steps
+def step_schematic(model):
+    return [finding(x["severity"], "schematic", x["check"], x["anchor"], x["message"], x["rule"], "checks.py")
+            for x in C.run(model)]
+
+
+def step_erc(cli, sch, out):
+    if not cli or not sch:
+        return [not_run("erc", "needs kicad-cli and a schematic")]
+    path = os.path.join(out, "erc.json")
+    r = subprocess.run([cli, "sch", "erc", "--format", "json", "--severity-all", "-o", path, sch],
+                       capture_output=True, text=True)
+    if not os.path.exists(path):
+        return [not_run("erc", (r.stdout + r.stderr).strip()[-200:] or "kicad-cli failed")]
+    with open(path) as f:
+        data = json.load(f)
+    found = []
+    for sheet in data.get("sheets", []):
+        for v in sheet.get("violations", []):
+            sev = {"error": "MAJOR", "warning": "MINOR"}.get(v.get("severity"), "NOTE")
+            items = "; ".join(i.get("description", "") for i in v.get("items", []))[:200]
+            found.append(finding(sev, "schematic", f"erc:{v.get('type', '')}", sheet.get("path", ""),
+                                 f"{v.get('description', '')}: {items}", "KiCad ERC", "kicad-cli sch erc"))
+    return found
+
+
+def step_library(board, sch, out):
+    if not (board and sch):
+        return [not_run("library", "needs a board and a schematic")]
+    path = os.path.join(out, "library.json")
+    code, text = run([script("schematic-capture", "library_check.py"), board, "--schematic", sch, "--json", path])
+    if not os.path.exists(path):
+        return [not_run("library", text.strip()[-200:])]
+    with open(path) as f:
+        data = json.load(f)
+    sev = {"pins_without_pad": "MAJOR", "pads_without_pin": "MAJOR", "not_on_board": "MAJOR", "missing_fields": "MINOR"}
+    return [finding(sev.get(k, "MINOR"), "library", k, row.split(" ")[0], row, "schematic-capture §5–§6",
+                    "library_check.py") for k, rows in data.items() for row in rows]
+
+
+def _gate_findings(data, tool, area, rule, kinds):
+    found = []
+    examples = data.get("examples", {})
+    for kind, rows in (("hard", data.get("failures", [])), ("soft", data.get("warnings", []))):
+        for row in rows:
+            name = row.split(" ")[0]
+            if name in SAFETY or name == "DRC":
+                sev = "BLOCKER" if name in SAFETY else "MAJOR"
+            elif name in HOUSE_STYLE:
+                sev = "MINOR"
+            else:
+                sev = "MAJOR" if kind == "hard" else "MINOR"
+            ex = examples.get(name) or []
+            detail = "; ".join(str(e) for e in ex[:5])
+            label = " (house style)" if name in HOUSE_STYLE else ""
+            found.append(finding(sev, area, name, detail[:200], f"{row}{label}" + (f": {detail}" if detail else ""),
+                                 rule, tool))
+    return found
+
+
+def step_rules(board, cli, fab, out):
+    if not board:
+        return [not_run("rules", "no board")]
+    path = os.path.join(out, "rules.json")
+    cmd = [script("pcb-design-rules", "pcb_rules.py"), "check", board, "--json", path]
+    if not cli:
+        cmd.append("--no-drc")
+    else:
+        cmd += ["--kicad-cli", cli]
+    if fab:
+        cmd += ["--fab", fab]
+    code, text = run(cmd)
+    if not os.path.exists(path):
+        return [not_run("rules", text.strip()[-200:])]
+    with open(path) as f:
+        data = json.load(f)
+    found = _gate_findings(data, "pcb_rules.py check", "layout", "pcb-design-rules §2", None)
+    if not cli:
+        found.append(not_run("drc", "kicad-cli not found: geometry, copper and the script's own short/clearance check "
+                                    "ran; KiCad DRC and schematic parity did not"))
+    return found
+
+
+def step_netclasses(board, out):
+    if not board:
+        return [not_run("netclasses", "no board")]
+    path = os.path.join(out, "netclasses.json")
+    code, text = run([script("pcb-copper", "netclasses.py"), "check", board, "--json", path])
+    if not os.path.exists(path):
+        return [not_run("netclasses", text.strip()[-200:])]
+    with open(path) as f:
+        data = json.load(f)
+    return _gate_findings(data, "netclasses.py check", "copper", "pcb-copper §4", None)
+
+
+def step_placement(board, assembly, out):
+    if not board:
+        return [not_run("placement", "no board")]
+    found = []
+    path = os.path.join(out, "placement.json")
+    code, text = run([script("pcb-placement", "place.py"), "gate", board, "--json", path, "--assembly", "none"])
+    if os.path.exists(path):
+        with open(path) as f:
+            m = json.load(f)
+        for k in ("parts_off_board", "overlaps", "keepout_violations"):
+            for item in (m.get("detail", {}).get(k) or [])[:30]:
+                found.append(finding("MAJOR", "placement", k, str(item), f"{k}: {item}", "pcb-placement §4",
+                                     "place.py gate"))
+    else:
+        found.append(not_run("placement", text.strip()[-200:]))
+    if assembly == "none":
+        return found
+    path = os.path.join(out, "assembly.json")
+    code, text = run([script("pcb-placement", "dfa.py"), board, "--assembly", assembly, "--json", path])
+    if not os.path.exists(path):
+        return found + [not_run("assembly", text.strip()[-200:])]
+    with open(path) as f:
+        dd = json.load(f)["detail"]
+    for a, b, gap, lim, cls in dd.get("assembly_spacing", []):
+        found.append(finding("MAJOR", "assembly", "assembly_spacing", f"{a} / {b}",
+                             f"{a} and {b} {gap} mm apart, below {assembly}'s {lim} mm for {cls}", "pcb-placement §4.1",
+                             "dfa.py"))
+    for a, b, gap, lim, cls in dd.get("decoupling_exceptions", []):
+        found.append(finding("NOTE", "assembly", "decoupling_exception", f"{a} / {b}",
+                             f"{a} and {b} {gap} mm apart (< {lim} mm for {cls}): decoupling kept close on purpose; "
+                             "accept or move", "pcb-placement §4.1", "dfa.py"))
+    for ref, dist in dd.get("edge_keepout", []):
+        found.append(finding("MINOR", "assembly", "edge_keepout", ref,
+                             f"{ref} is {dist} mm from the board edge (brittle part: keep 3–5 mm)", "pcb-placement §4.1",
+                             "dfa.py"))
+    for side, v in dd.get("fiducials", {}).items():
+        if not v["ok"]:
+            found.append(finding("MINOR", "assembly", "fiducials", f"{side}.Cu",
+                                 f"{v['count']} fiducial(s) on {side}.Cu"
+                                 + (f", too close to the edge: {', '.join(v['too_close'])}" if v["too_close"] else "")
+                                 + ": add 3 or order edge rails with fiducials", "pcb-placement §4.1", "dfa.py"))
+    if dd.get("orientation_mixed"):
+        rows = dd["orientation_mixed"]
+        found.append(finding("MINOR", "assembly", "orientation_mixed", ", ".join(r[0] for r in rows[:10]),
+                             f"{len(rows)} part(s) off their class's usual orientation: "
+                             + ", ".join(f"{r[0]} {r[1]}°" for r in rows[:10]), "pcb-placement §4.1", "dfa.py"))
+    return found
+
+
+def step_blocks(board, pattern, root):
+    if not board:
+        return []
+    paths = sorted(glob.glob(pattern if os.path.isabs(pattern) else os.path.join(root, pattern), recursive=True))
+    found = []
+    for p in paths:
+        code, text = run([script("reference-block", "refblock.py"), "check", p, board])
+        if code:
+            found.append(finding("MAJOR", "layout", "reference_block", os.path.basename(p),
+                                 f"copied block no longer matches the vendor's: {text.strip()[-300:]}",
+                                 "reference-block §5", "refblock.py check"))
+    return found
+
+
+def step_stock(bom, out):
+    if not bom:
+        return []
+    path = os.path.join(out, "stock.json")
+    code, text = run([script("hardware-project", "jlc_stock.py"), bom, "--json", path])
+    if not os.path.exists(path):
+        return [not_run("stock", text.strip()[-200:])]
+    with open(path) as f:
+        data = json.load(f)
+    found = [finding("MAJOR", "bom", "stock", r["lcsc"], f"{r['lcsc']} {r.get('mpn', '')}: {r['status']}",
+                     "hardware-project §5", "jlc_stock.py") for r in data["lines"] if r["status"] != "ok"]
+    found += [finding("NOTE", "bom", "stock", n.split(":")[0], n, "hardware-project §5", "jlc_stock.py")
+              for n in data.get("notes", [])]
+    return found
+
+
+# ------------------------------------------------------------------------------------------------ report
+def report_md(meta, findings):
+    counts = {s: sum(1 for x in findings if x["severity"] == s) for s in SEVERITY}
+    lines = [f"# Design review: {meta['board_name']}", "",
+             f"Generated {meta['generated']} from {meta['model']}. Checks run: {', '.join(meta['steps'])}.", "",
+             "| Severity | Count |", "|---|---|"] + [f"| {s} | {counts[s]} |" for s in SEVERITY] + [""]
+    lines += ["| # | Severity | Area | Check | Anchor | Finding | Rule |", "|---|---|---|---|---|---|---|"]
+    for x in findings:
+        msg = x["message"].replace("|", "\\|").replace("\n", " ")
+        lines.append(f"| {x['id']} | {x['severity']} | {x['area']} | {x['check']} | {x['anchor'][:60].replace('|', '/')} "
+                     f"| {msg[:400]} | {x['rule']} |")
+    lines += ["", "Findings from scripts are evidence, not verdicts: the reviewer confirms each against the datasheets "
+              "and the design intent, and adds what the scripts can't see (design-review §4)."]
+    return "\n".join(lines) + "\n"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("project")
+    ap.add_argument("--out")
+    ap.add_argument("--voltage", action="append", default=[], metavar="NET=V", help="a net's voltage (max, DC or peak)")
+    ap.add_argument("--voltages", help="JSON {net: volts}")
+    ap.add_argument("--netlist", help="a KiCad netlist (.net, S-expression) instead of reading the board")
+    ap.add_argument("--kicad-cli")
+    ap.add_argument("--fab")
+    ap.add_argument("--assembly", default="jlcpcb")
+    ap.add_argument("--blocks", default="**/*.block.json", help="glob of reference-block blocks to check")
+    ap.add_argument("--bom", help="BOM CSV for the stock check (network)")
+    ap.add_argument("--skip", default="", help="steps to skip: " + ",".join(STEPS))
+    ap.add_argument("--fail-on", choices=SEVERITY[:3])
+    a = ap.parse_args(argv)
+
+    pro, board, sch = find_project(a.project)
+    if not (board or sch or a.netlist):
+        sys.exit("nothing to review: no .kicad_pcb, .kicad_sch or --netlist")
+    name = os.path.basename((board or sch or a.netlist).rsplit(".", 1)[0])
+    root = os.path.dirname(pro or board or sch or a.netlist)
+    out = os.path.abspath(a.out or os.path.join(os.getcwd(), "review_exports", name, "review"))
+    os.makedirs(out, exist_ok=True)
+    cli = None
+    for c in (a.kicad_cli, os.environ.get("KICAD_CLI"), shutil.which("kicad-cli")):
+        if c:
+            cli = c
+            break
+    skip = {s.strip() for s in a.skip.split(",") if s.strip()}
+
+    netlist = a.netlist
+    if not netlist and cli and sch:
+        tmp = os.path.join(out, "netlist.net")
+        subprocess.run([cli, "sch", "export", "netlist", "--format", "kicadsexpr", "-o", tmp, sch],
+                           capture_output=True, text=True)
+        netlist = tmp if os.path.exists(tmp) else None
+    if board:
+        model = D.from_board(board, sch, pro)
+    elif netlist:
+        model = D.from_netlist(netlist)
+    else:
+        model = None
+    if model:
+        if a.voltages:
+            with open(a.voltages) as f:
+                model.overrides.update({k: float(v) for k, v in json.load(f).items()})
+        for kv in a.voltage:
+            k, v = kv.split("=", 1)
+            model.overrides[k] = float(v)
+
+    findings, ran = [], []
+    plan = [("schematic", lambda: step_schematic(model) if model else [not_run("schematic", "no board, schematic netlist or kicad-cli")]),
+            ("erc", lambda: step_erc(cli, sch, out)),
+            ("library", lambda: step_library(board, sch, out)),
+            ("rules", lambda: step_rules(board, cli, a.fab, out)),
+            ("netclasses", lambda: step_netclasses(board, out)),
+            ("placement", lambda: step_placement(board, a.assembly, out)),
+            ("blocks", lambda: step_blocks(board, a.blocks, root)),
+            ("stock", lambda: step_stock(a.bom, out))]
+    for step, fn in plan:
+        if step in skip:
+            continue
+        try:
+            findings += fn()
+            ran.append(step)
+        except Exception as e:                       # a broken step must not hide the others
+            findings.append(not_run(step, f"{type(e).__name__}: {e}"))
+    findings.sort(key=lambda x: (SEVERITY.index(x["severity"]), x["area"], x["check"], x["anchor"]))
+    for i, x in enumerate(findings, 1):
+        x["id"] = f"F{i}"
+    meta = dict(board_name=name, generated=datetime.datetime.now().isoformat(timespec="seconds"),
+                model=model.source if model else "no model", steps=ran,
+                inputs=dict(project=pro, board=board, schematic=sch, netlist=netlist, kicad_cli=cli),
+                voltages=model.overrides if model else {})
+    counts = {s: sum(1 for x in findings if x["severity"] == s) for s in SEVERITY}
+    with open(os.path.join(out, "findings.json"), "w") as f:
+        json.dump(dict(meta, counts=counts, findings=findings), f, indent=2)
+    with open(os.path.join(out, "review.md"), "w") as f:
+        f.write(report_md(meta, findings))
+    print(f"{name}: " + ", ".join(f"{counts[s]} {s}" for s in SEVERITY) + f" -> {out}/review.md, findings.json")
+    for x in findings:
+        if x["severity"] in ("BLOCKER", "MAJOR"):
+            print(f"  {x['id']} {x['severity']} {x['area']}/{x['check']}: {x['message'][:160]}")
+    if a.fail_on and any(SEVERITY.index(x["severity"]) <= SEVERITY.index(a.fail_on) for x in findings):
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    tempfile.tempdir = None
+    sys.exit(main())

@@ -1034,6 +1034,7 @@ def cmd_check(a):
                   ""]
         for k, ex in cex.items():
             if ex:
+                examples[k] = list(ex)                       # into --json too: a finding needs its location
                 lines.append(f"**{k}** (first {len(ex)})")
                 lines += [f"- {e}" for e in ex]
                 lines.append("")

@@ -21,6 +21,20 @@ A placement run costs real money and can take up to an hour (`max_budget_usd` an
 Run it by hand, not in CI. Work directories go to `<board-repo>/evals/work/` (gitignore it there); summaries to
 `<board-repo>/evals/results/`.
 
+## Review: seeded defects
+
+`review_defects.py` measures a design review on a real board, with no Claude run needed for the scripted part:
+
+```bash
+python3 evals/review_defects.py run <board.kicad_pcb> [--schematic root.kicad_sch] --voltage VBAT=12.6 --out <dir>
+python3 evals/review_defects.py score <dir>/manifest.json --report <agent-review.md>   # score any review
+python3 evals/test_review_defects.py                                                   # self-test
+```
+
+`run` plants one defect of each kind it finds a target for in a copy of the board and scores the scripted checks
+on it. `score` grades any review (the board-reviewer agent's report, a human's) against the planted defects. See
+`design-review` §5 for the defect kinds and the first measurements.
+
 ## A case
 
 ```json

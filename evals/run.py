@@ -15,7 +15,7 @@ Each run then gets a fresh copy of the fixture's KiCad files (the manifest and b
   - `--plugin-dir plugins/hardware-design` for the `with-plugin` configuration only;
   - `--permission-mode bypassPermissions` (the copy is disposable), `--max-budget-usd` from the case.
 The transcript (stream-json) is kept beside the board; the skills Claude loaded, its cost and turns are read from it.
-Scores come from the files only (metrics.py), against the fixture's baseline (the owner's placement). The summary is
+Scores come from the files only (placement_metrics.py, pcb-placement skill), against the fixture's baseline (the owner's placement). The summary is
 written to <board-repo>/evals/results/<stamp>-<case>.json. `evals/work/` should be gitignored in the board repo.
 
 Run it by hand before a release tag, not in CI: a placement case costs real money and up to an hour per run.
@@ -30,9 +30,10 @@ import statistics
 import subprocess
 import sys
 
+import _paths  # noqa: F401  (pcb-placement scripts on the path)
 import boardgeo as G
 import make_fixture as F
-import metrics as M
+import placement_metrics as M
 
 HERE = pathlib.Path(__file__).resolve().parent
 PLUGIN = HERE.parent / "plugins" / "hardware-design"

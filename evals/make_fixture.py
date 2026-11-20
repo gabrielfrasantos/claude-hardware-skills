@@ -26,8 +26,9 @@ import re
 import subprocess
 import sys
 
+import _paths  # noqa: F401  (pcb-placement scripts on the path)
 import boardgeo as G
-import metrics as M
+import placement_metrics as M
 
 DROP = {"segment", "arc", "via", "group"}
 GAP = 1.0          # mm between parked parts

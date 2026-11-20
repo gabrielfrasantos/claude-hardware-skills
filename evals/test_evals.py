@@ -9,9 +9,10 @@ import tempfile
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import _paths  # noqa: F401  (pcb-placement scripts on the path)
 import boardgeo as G  # noqa: E402
 import make_fixture as F  # noqa: E402
-import metrics as M  # noqa: E402
+import placement_metrics as M  # noqa: E402
 import run as RUN  # noqa: E402
 
 HEAD = '(kicad_pcb\n\t(version 20260206)\n\t(layers\n\t\t(0 "F.Cu" signal)\n\t\t(2 "B.Cu" signal)\n\t)\n'

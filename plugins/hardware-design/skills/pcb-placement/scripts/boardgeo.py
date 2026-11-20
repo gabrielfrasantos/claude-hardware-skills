@@ -13,7 +13,7 @@ import sys
 from shapely.geometry import MultiPoint, Polygon
 from shapely.ops import polygonize, unary_union
 
-CORE = pathlib.Path(__file__).resolve().parents[1] / "plugins/hardware-design/skills/pcb-design-rules/scripts"
+CORE = pathlib.Path(__file__).resolve().parents[2] / "pcb-design-rules" / "scripts"
 sys.path.insert(0, str(CORE))
 import pcb_rules as R  # noqa: E402
 
@@ -87,6 +87,7 @@ class Board:
         self.net_names = {n[1]: n[2] for n in R.children(root, "net") if len(n) >= 3}
         self.footprints = [self._footprint(fp) for fp in R.children(root, "footprint")]
         self.outline = self._outline(root)
+        self.keepouts = self._keepouts(root)
         self.vias = len(R.children(root, "via"))
         self.segments = len(R.children(root, "segment")) + len(R.children(root, "arc"))
 
@@ -142,6 +143,30 @@ class Board:
                 pts = pts + pts[:1]
             segs.extend(zip(pts, pts[1:]))
         return chain(segs)
+
+    def _keepouts(self, root):
+        """Rule areas that forbid footprints: [(sides, polygon)], sides a subset of {"F", "B"}."""
+        out = []
+        for z in R.children(root, "zone"):
+            ko = R.child(z, "keepout")
+            fp = R.child(ko, "footprints") if ko else None
+            if not (fp and fp[1] == "not_allowed"):
+                continue
+            lay = R.child(z, "layers") or R.child(z, "layer")
+            names = set(lay[1:]) if lay else set()
+            sides = {"F", "B"} if names & {"*.Cu", "F&B.Cu"} else \
+                {s for s, l in (("F", "F.Cu"), ("B", "B.Cu")) if l in names}
+            poly = R.child(z, "polygon")
+            pts = R.child(poly, "pts") if poly else None
+            xy = []
+            for q in (pts[1:] if pts else []):
+                if q[0] == "xy":
+                    xy.append(_xy(q))
+                elif q[0] == "arc":
+                    xy += [_xy(R.child(q, k)) for k in ("start", "mid", "end")]
+            if len(xy) >= 3 and sides:
+                out.append((sides, Polygon(xy).buffer(0)))
+        return out
 
     def by_ref(self):
         return {f["ref"]: f for f in self.footprints}

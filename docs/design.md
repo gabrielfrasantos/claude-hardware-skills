@@ -125,7 +125,7 @@ The phases below close them in order. Each ends at a gate the owner signs off, a
 ### Phase B: KiCad 10 validation (Claude prepares, the owner runs on a machine with KiCad 10)
 
 Every script that writes a KiCad file has only been checked by re-parsing its output. A kit
-(`evals/validate_kicad.py`, to build) runs each step on a **copy** of the pendulum, then `kicad-cli` loads, DRCs
+(`evals/validate_kicad.py`, #14) runs each step on a **copy** of the pendulum, then `kicad-cli` loads, DRCs
 and ERCs every result and collects one report. If the owner links this conversation to the computer (Claude
 desktop app, "Add folder"), Claude can run it there.
 

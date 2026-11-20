@@ -18,7 +18,9 @@ rules and the tools. Load the matching skill before the work:
 | Fab rules, teardrops, pours, layout-quality gate | `pcb-design-rules` |
 | Net classes (`PWR_<I>A`, `GND`, `SIGNAL`, ...) | `pcb-copper` |
 | Placement, MCU pin assignment | `pcb-placement` |
+| Power circuits: input protection, rails, bridges, gate drive, current sense | `power-circuit-design` |
 | Power stages, high-current copper | `power-pcb-layout` |
+| Copying a vendor's layout block (RF, NFC, power stage) from `reference/` | `reference-block` |
 | USB, CAN, RS-485, Ethernet, connector ESD | `interface-layout` |
 | Memories, displays, cameras, clocks | `high-speed-digital-layout` |
 | 2.4 GHz radios | `rf-layout` |

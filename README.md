@@ -1,84 +1,141 @@
 # claude-hardware-skills
 
-Claude skills for electronics hardware design in KiCad. The rules come from vendor app notes and standards, and the workflows come from real boards ([e-psu](https://github.com/embedded-pro/e-psu-hardware), [e-foc](https://github.com/embedded-pro/e-foc-hardware)).
+[![ci](https://github.com/gabrielfrasantos/claude-hardware-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/gabrielfrasantos/claude-hardware-skills/actions/workflows/ci.yml)
+[![release](https://img.shields.io/github/v/release/gabrielfrasantos/claude-hardware-skills?sort=semver)](https://github.com/gabrielfrasantos/claude-hardware-skills/releases)
+[![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![KiCad 10+](https://img.shields.io/badge/KiCad-10%2B-314cb0)
 
-The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one plugin (`hardware-design`) that bundles the skills.
+Claude Code skills and tools for designing electronics in **KiCad 10**, from the firmware's requirements to the fab
+files. The rules come from vendor datasheets, app notes, standards and fab capability pages, each one cited. The
+workflows and tools come from real boards:
+[e-inverted-pendulum](https://github.com/embedded-pro/e-inverted-pendulum-hardware),
+[e-foc](https://github.com/embedded-pro/e-foc-hardware) and
+[e-psu](https://github.com/embedded-pro/e-psu-hardware).
+
+The repository is a Claude Code **plugin marketplace** (`hardware-skills`) with one plugin (`hardware-design`).
+
+## What it does
+
+- **Rules an agent can follow and you can check.** Every number has a source (document ID and section), is marked
+  *derived* with its arithmetic, or is labelled a rule of thumb or house style.
+- **Tools, not just text.** Python scripts read and write KiCad 10 files directly. They generate the schematic,
+  assign MCU pins from the placement, place parts, size net classes, set fab rules, copy vendor layouts, and gate
+  the board before review. They run locally and in CI.
+- **A workflow with gates.** Requirements traced to the firmware, decisions logged, phases signed off by the owner.
+
+```mermaid
+flowchart LR
+  R[Requirements<br/>hardware-project] --> S[Schematic as code<br/>schematic-capture]
+  S --> C[Circuit rules<br/>mcu / power / analog]
+  C --> SIM[Simulation<br/>circuit-simulation]
+  SIM --> P[Placement and pins<br/>pcb-placement]
+  P --> N[Net classes, fab rules<br/>pcb-copper, pcb-design-rules]
+  N --> L[Routing rules<br/>power / RF / high-speed / interface]
+  L --> G[Gates: DRC, geometry, copper, assembly]
+  G --> F[Fab and assembly files<br/>hardware-project]
+  V[Vendor reference layouts<br/>reference-block] -.-> P
+```
 
 ## Skills
 
-| Skill | Use it to | Status |
-|---|---|---|
-| [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Lay out, route or review PCBs with power stages: hot loops, gate drive, high-current copper, Kelvin sensing, thermal, isolation. It follows the parts you place. | ready |
-| [`reference-block`](plugins/hardware-design/skills/reference-block/SKILL.md) | Copy a vendor's proven layout block (RF corner, NFC coil, power stage) onto a KiCad 10 board: `kicad-cli` import (Altium and others), cut the block out, map parts and nets to ours (catches wiring that differs), paste parts, tracks, vias, pours and rule areas, check it stays intact; when copying beats designing | ready |
-| [`power-circuit-design`](plugins/hardware-design/skills/power-circuit-design/SKILL.md) | Design or review power circuits at schematic level: input path (reverse polarity, switch, inrush, hot plug, TVS, fuse, UVLO), buck and LDO rails, H-bridge and three-phase stages, gate drive and dead time, bus capacitors and regeneration, shunt sensing, protection and safe state, snubbers, thermal | ready |
-| [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around any microcontroller (STM32, Tiva, NXP, AVR, ...): supplies and decoupling, reset/boot, clocks, debug, GPIO/connector protection, ESD, interfaces | ready |
-| [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Design op-amp, reference, ADC-drive and sensor circuits: protection, noise, stability, component choice | ready |
-| [`hardware-project`](plugins/hardware-design/skills/hardware-project/SKILL.md) | Start and run a board repo: scaffold (CLAUDE.md, requirements traced to firmware, decisions, phase gates, reviewer agent with a per-board rubric, schgen config, pin needs), check traceability (`trace.py`), and export review, BOM, JLC stock, JLCPCB, release packages and visual diffs with shared scripts instead of per-repo copies | ready |
-| [`schematic-capture`](plugins/hardware-design/skills/schematic-capture/SKILL.md) | Draw the schematic as code with schgen (Python sheets to KiCad 10, deterministic, intended netlist recorded), with function nets for pins chosen after placement and net-class directive labels; check the netlist against intent, equivalence after drawing-only changes, and symbol pins against footprint pads and BOM fields (`library_check.py`, no KiCad needed) | ready |
-| [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python simulation suite from a KiCad schematic, covering loop stability, corners, transients, protection, noise and a report | ready |
-| [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Route memories (QSPI/OctoSPI/HyperBus, SDRAM, DDR/LPDDR, SD/eMMC), displays (RGB, MIPI DSI/CSI, LVDS), cameras and clocks | ready |
-| [`interface-layout`](plugins/hardware-design/skills/interface-layout/SKILL.md) | Lay out USB, USB-C, CAN/CAN FD, RS-485, Ethernet, isolated buses, connector ESD and shielding | ready |
-| [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Place the unlocked parts around the owner's locked anchors with a simulated-annealing optimizer (ratsnest, decoupling distance, no overlaps, keep-outs), refine, render the result as a PNG, gate it on validity and ratsnest/crossings against a baseline, then assign the MCU's pins from the placement within the firmware's needs (alternate functions, peripheral instances, EXTI lines). Includes `place.py` and `pins.py` | ready |
-| [`pcb-copper`](plugins/hardware-design/skills/pcb-copper/SKILL.md) | Give every net a class from one standard set declared on the schematic's net-class directive labels (`PWR_4A`, `GND`, `SIGNAL`, `CLK`, `DIFF_90`, `RF_50`, `…_48V`), size each class from its name (IPC-2221 width per layer's copper, IPC-2221 clearance for the voltage, pours above 3 A) and gate the board on nets in Default, tracks below their class width and missing pours. Includes `netclasses.py` | ready |
-| [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Set a KiCad 10 board's rules from the fab's capabilities (JLCPCB, Seeed, or both), turn teardrops on and record the stack-up, then gate the layout on shorts and clearance (no exclusions, plus a fab-minimum floor), DRC, geometry (45° corners only, no mid-track branches, jogs, vias and segments per connection) and copper (teardrops, pour islands and necks, ground-plane splits, stitching, signals over plane gaps). Includes `pcb_rules.py` for local use and CI | ready |
-| [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Design and lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, supplies, crystals, coexistence, certification, pitfalls | ready |
+### Project
 
-## Plan and evals
+| Skill | Use it to |
+|---|---|
+| [`hardware-project`](plugins/hardware-design/skills/hardware-project/SKILL.md) | Start and run a board repo: scaffold (CLAUDE.md, requirements traced to firmware, decisions, phase gates, reviewer agent), check traceability, and export review, BOM, JLCPCB stock (packages, lifecycle, second sources), fab, release packages and visual diffs |
 
-- [`docs/design.md`](docs/design.md): where the plugin is going (rules → workflow → generation), the decisions behind
-  it and the build order.
-- [`evals/`](evals/README.md): a generic harness that runs a board repo's eval cases with and without the plugin and
-  scores the results against the owner's own placement. The cases live in the board repos.
+### Schematic and circuits
+
+| Skill | Use it to |
+|---|---|
+| [`schematic-capture`](plugins/hardware-design/skills/schematic-capture/SKILL.md) | Draw the schematic as code (Python sheets to KiCad 10, deterministic), with function nets for pins chosen after placement and net-class labels; check the netlist against intent, drawing-only changes, and symbol pins against footprint pads and BOM fields |
+| [`mcu-circuit-design`](plugins/hardware-design/skills/mcu-circuit-design/SKILL.md) | Design the circuitry around any microcontroller: supplies and decoupling, reset and boot, clocks, debug, GPIO and connector protection, ESD |
+| [`power-circuit-design`](plugins/hardware-design/skills/power-circuit-design/SKILL.md) | Design power circuits: input protection (reverse polarity, inrush, hot plug, TVS, fuse, UVLO), buck and LDO rails, H-bridge and three-phase stages, gate drive, bus capacitors and regeneration, current sense, protection, snubbers, thermal |
+| [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Design op-amp, reference, ADC-drive and sensor circuits: protection, noise, stability, component choice |
+| [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Build an ngspice + Python suite from the schematic: loop stability, corners, transients, protection, noise, a report |
+
+### Layout
+
+| Skill | Use it to |
+|---|---|
+| [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Place the unlocked parts around the owner's locked anchors (simulated annealing on ratsnest, crossings and decoupling distance), render it, gate it against a baseline and the assembler's rules (package-pair spacing, edge keep-outs, fiducials, orientation), and assign the MCU's pins from the placement |
+| [`pcb-copper`](plugins/hardware-design/skills/pcb-copper/SKILL.md) | Give every net a class from one standard set (`PWR_4A`, `GND`, `SIGNAL`, `DIFF_90`, `RF_50`, `…_48V`), size widths from the current and clearances from the voltage (IPC-2152 / IPC-2221C), and gate tracks below their class and missing pours |
+| [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Set the board's rules from the fab (JLCPCB, Seeed, or both), turn teardrops on, record the stack-up, then gate shorts and clearance, DRC, geometry (house style: 45° corners, mostly horizontal and vertical tracks) and copper (pours, planes, stitching) |
+| [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Lay out power stages: hot loops, gate drive, high-current copper, Kelvin sensing, thermal, isolation; following the parts you place |
+| [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, supplies, crystals, coexistence, certification |
+| [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Route memories (QSPI, SDRAM, DDR, SD/eMMC), displays (RGB, MIPI, LVDS), cameras and clocks |
+| [`interface-layout`](plugins/hardware-design/skills/interface-layout/SKILL.md) | Lay out USB, USB-C, CAN, RS-485, Ethernet, isolated buses, connector ESD and shielding |
+| [`reference-block`](plugins/hardware-design/skills/reference-block/SKILL.md) | Copy a vendor's proven layout block (RF corner, NFC coil, power stage) onto your board: import Altium and others with `kicad-cli`, map parts and nets, paste the copper, check it stays intact; and when copying beats designing |
 
 ## Install
 
 ### Claude Code
-
-In a Claude Code session:
 
 ```
 /plugin marketplace add gabrielfrasantos/claude-hardware-skills
 /plugin install hardware-design@hardware-skills
 ```
 
-Skills load automatically when a task matches their description. You can also call one by name, e.g. `/hardware-design:power-pcb-layout`.
-
-To get updates, run `/plugin marketplace update hardware-skills`. You can also turn on auto-update for the marketplace under **Marketplaces** in `/plugin`. The plugin has no `version` field, so every commit to `main` is a new version.
+Skills load when a task matches their description, or call one by name, e.g. `/hardware-design:pcb-placement`.
+The plugin is versioned by release (`vX.Y.Z` tags, see the [changelog](CHANGELOG.md)); run
+`/plugin marketplace update hardware-skills` to update, or turn on auto-update under **Marketplaces** in `/plugin`.
 
 ### For everyone working in a hardware repo
 
-Run this once from the hardware repo's root, then commit the `.claude/settings.json` it writes:
+From the hardware repo's root, once, then commit the `.claude/settings.json` it writes:
 
 ```bash
 claude plugin marketplace add gabrielfrasantos/claude-hardware-skills --scope project
 ```
 
-Teammates who trust the folder get the marketplace registered automatically.
+Teammates who trust the folder get the marketplace registered automatically. `hardware-project`'s scaffold does this
+for a new board repo.
 
 ### claude.ai
 
-Each skill is a self-contained folder with a `SKILL.md`. Zip a skill folder (e.g. `plugins/hardware-design/skills/power-pcb-layout/`) and upload it as a skill in your claude.ai settings.
+The rules-only skills (`*-layout`, `*-circuit-design`, `circuit-simulation`) are self-contained: zip the skill's
+folder and upload it under skills in claude.ai's settings. The skills with tools need the whole plugin.
 
-## Layout
+## Requirements for the tools
+
+- **KiCad 10 or later** (`kicad-cli`) for DRC, ERC, netlists, imports and exports. Files older than KiCad 10 are
+  refused; open and save them in KiCad 10 first.
+- **Python 3.10+** with `pip install -r requirements.txt` (shapely, numpy, scipy, matplotlib).
+- **ngspice** for `circuit-simulation`.
+- Network access for `jlc_stock.py` (JLCPCB parts library) and `fetch_datasheet.py`.
+
+The tests need none of KiCad, ngspice or the network.
+
+## How it's checked
+
+- **Sources.** Each skill ends with its references; [`docs/research/best-practices-audit.md`](docs/research/best-practices-audit.md)
+  is an audit of the skills against primary sources, with what was changed.
+- **Tests.** Every script has self-tests on synthetic KiCad 10 files; CI runs them, a lint and the plugin validator
+  on every pull request.
+- **Real boards.** The tools are measured on the boards above (placement against the owner's, schematic generation
+  byte-identical, a vendor block round trip byte-identical); each skill says what was measured and what wasn't.
+- **Evals.** [`evals/`](evals/README.md) runs a board repo's eval cases with and without the plugin and scores them
+  against the owner's own work.
+
+## Repository layout
 
 ```
-.claude-plugin/marketplace.json           # marketplace "hardware-skills"
+.claude-plugin/marketplace.json        marketplace "hardware-skills"
 plugins/hardware-design/
-├── .claude-plugin/plugin.json            # plugin "hardware-design"
-└── skills/
-    └── <skill-name>/
-        ├── SKILL.md                      # one folder per skill
-        └── scripts/, profiles/           # optional helpers the skill calls
-docs/design.md                            # the plan and its decisions
-evals/                                    # generic eval harness (cases live in board repos)
+├── .claude-plugin/plugin.json         plugin "hardware-design"
+└── skills/<skill>/                    SKILL.md, plus scripts/ and profiles/ where the skill has tools
+docs/design.md                         the plan and its decisions (D1, D2, ...)
+docs/research/                         audits and research notes
+evals/                                 generic eval harness (the cases live in the board repos)
 ```
 
-## Adding or changing a skill
+## Contributing
 
-1. Create `plugins/hardware-design/skills/<skill-name>/SKILL.md`. Give it front matter with `name` (kebab-case, same as the folder) and a one-sentence `description` that says *when* to use it.
-2. **Every number needs a source.** Cite the app note or standard by document ID and title in the skill's References section. Don't add a rule you can't trace.
-3. Keep skills **generic and vendor-neutral**. State the rule, say which datasheet parameter to look up, and give examples from several vendors (e.g. STM32, TI Tiva, NXP, Microchip). Never state one family's value as the rule. Project-specific part numbers appear only as labelled examples.
-4. Validate before pushing:
-   ```bash
-   claude plugin validate .
-   ```
+Corrections backed by a primary source are the most useful contribution. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+how rules are sourced, how scripts are tested and how commits become releases.
+
+## License
+
+[MIT](LICENSE). The skills cite vendor documents and standards; they don't reproduce them, and those documents stay
+under their owners' terms. Vendor design files used with `reference-block` stay in your board repo's gitignored
+`reference/` folder, under the vendor's licence.

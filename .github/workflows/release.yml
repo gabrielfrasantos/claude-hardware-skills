@@ -1,0 +1,26 @@
+name: release
+
+# release-please reads the Conventional Commits on `main`, keeps a release PR open with the next version and the
+# CHANGELOG, and on merge tags the release (vX.Y.Z) and writes the version into the plugin and marketplace
+# manifests. Board repos' CI pins a tag; interactive sessions follow the latest release (docs/design.md D29).
+# Third-party actions are pinned to a full commit SHA, with the version in a trailing comment.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write        # tags, releases and the release PR's commits
+  pull-requests: write   # open and update the release PR
+
+jobs:
+  release-please:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run release-please
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

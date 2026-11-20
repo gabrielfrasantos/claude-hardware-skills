@@ -941,7 +941,7 @@ def cmd_check(a):
     fabs = a.fab.split(",") if a.fab else managed_fabs(dru)
     fab_min = combined_rules(fabs, len(b.copper_layers))[0] if fabs else None
     lines = [f"# PCB rules check: {os.path.basename(board)}", ""]
-    failures, warnings, drc_info, copper = [], [], None, {}
+    failures, warnings, drc_info = [], [], None
     copper_board, copper_src = b, "the fills saved in the file"
 
     if not a.no_drc:

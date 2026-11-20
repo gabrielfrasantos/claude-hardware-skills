@@ -1,6 +1,6 @@
 {
   "name": "hardware-skills",
-  "description": "Claude skills for electronics hardware design: PCB layout for power devices, MCU and analog circuit design, circuit simulation",
+  "description": "Claude Code skills for electronics hardware design in KiCad 10, from requirements to fab files",
   "owner": {
     "name": "Gabriel Santos",
     "url": "https://github.com/gabrielfrasantos"
@@ -9,7 +9,8 @@
     {
       "name": "hardware-design",
       "source": "./plugins/hardware-design",
-      "description": "Power PCB layout, MCU and analog circuit design, and SPICE simulation skills for KiCad projects"
+      "description": "Skills and tools for KiCad 10 hardware design, every rule sourced: project and requirements, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly rules with layout-quality gates, power, RF, high-speed and interface layout, and copying vendor reference layouts",
+      "version": "0.1.0"
     }
   ]
 }

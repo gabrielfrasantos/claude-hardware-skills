@@ -1,0 +1,31 @@
+name: Script bug
+description: A script (pcb_rules.py, place.py, refblock.py, schgen.py, ...) fails or reports something wrong.
+title: "fix(<skill>): "
+labels: ["bug"]
+body:
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The exact command you ran.
+    validations:
+      required: true
+  - type: textarea
+    id: result
+    attributes:
+      label: What happened, and what you expected
+      description: Paste the output (trim long reports).
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Plugin version or commit, `kicad-cli version`, Python version, OS.
+    validations:
+      required: true
+  - type: textarea
+    id: board
+    attributes:
+      label: Smallest board that shows it
+      description: A minimal .kicad_pcb / .kicad_sch, or a link to a public repo and commit. Don't attach vendor files you may not share.

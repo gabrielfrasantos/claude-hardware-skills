@@ -45,7 +45,9 @@ MANUAL = [
            "teardrops_missing near 0."),
     ("B3", "In the B1 copy, Board Setup > Net Classes shows the standard classes with the widths netclasses.py printed."),
     ("B4", "Open the B4 copy: parts sit where the gate report says; nothing overlaps on screen."),
-    ("B6", "Open the B6 result: the copied block is one group; DRC shows only findings the original board had there."),
+    ("B6", "Open the B6 result (target.kicad_pcb): the copied block is one group and sits where it was; around it DRC "
+           "shows no short or clearance error the original lacks (unconnected items from the cut pours are the test's "
+           "set-up)."),
     ("B8", "Upload the B8 Gerbers, BOM and CPL to JLCPCB's viewer: layers, drill and part rotations are right."),
 ]
 
@@ -63,6 +65,21 @@ def py(args, env=None, cwd=None, timeout=1800):
 
 def tail(text, n=400):
     return text.strip()[-n:]
+
+
+def drc_types(cli, path, out):
+    """Counter of DRC violation types (unconnected items included) for a board, or None if KiCad can't load it."""
+    from collections import Counter
+    rpt = os.path.join(out, os.path.basename(str(path)) + ".types.drc.json")
+    r = subprocess.run([cli, "pcb", "drc", "--format", "json", "-o", rpt, str(path)], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
+    if r.returncode != 0 or not os.path.exists(rpt):
+        return None
+    with open(rpt, encoding="utf-8") as f:
+        data = json.load(f)
+    c = Counter(v.get("type", "?") for v in data.get("violations", []))
+    c["unconnected_items"] += len(data.get("unconnected_items", []))
+    return c
 
 
 def loads(cli, path, out):
@@ -144,11 +161,16 @@ class Kit:
         drc = data.get("drc")
         ok, detail = loads(self.cli, f"{stem}.kicad_pcb", self.out)
         good = drc is not None and ok
+        ex = data.get("examples", {})
+        shown = "; ".join(f"{k}: " + " | ".join(str(e)[:160] for e in ex.get(k, [])[:3])
+                          for k in ("shorts", "clearance_violations", "below_fab_minimum") if ex.get(k))
+        top = sorted((drc or {}).get("by_type", {}).items(), key=lambda kv: -kv[1])[:6]
         return row("B2", "rules check", "PASS" if good else "FAIL",
                    f"check exit {code} (1 = gates failed, expected on a board not set up this way); "
                    f"DRC inside check: {'yes' if drc is not None else 'NO'}; hard failures: "
-                   f"{', '.join(x.split(' ')[0] for x in data.get('failures', [])) or 'none'}; KiCad's own run: {detail}",
-                   [str(js)])
+                   f"{', '.join(x.split(' ')[0] for x in data.get('failures', [])) or 'none'}; KiCad's own run: {detail}"
+                   + (f"; DRC by type: {', '.join(f'{k} {v}' for k, v in top)}" if top else "")
+                   + (f"; first findings: {shown}" if shown else ""), [str(js)])
 
     def B3(self):
         stem = self.out / "B1" / "hardware" / self.board / self.board
@@ -232,14 +254,28 @@ class Kit:
         blk = self.out / "B6" / "block.json"
         c1, t1 = py([script("reference-block", "refblock.py"), "extract", board, mp, "-o", blk, "--board", target])
         c = ((b[0] + b[2]) / 2, (b[1] + b[3]) / 2)
+        orig = drc_types(self.cli, board, self.out)
+        stripped = drc_types(self.cli, target, self.out)
         c2, t2 = py([script("reference-block", "refblock.py"), "place", blk, target, "--at", c[0], c[1]])
         ok, detail = loads(self.cli, target, self.out)
+        pasted = drc_types(self.cli, target, self.out) if ok else None
         back = RB.PCB(target).by_ref() if c2 == 0 else {}
         same = sum(1 for r in refs if r in back and src.text[by[r]["s"]:by[r]["e"]] ==
                    RB.PCB(target).text[back[r]["s"]:back[r]["e"]])
         ev = (f"block of {len(refs)} parts around {anchor['ref']}; extract exit {c1}, place exit {c2}; "
               f"{same}/{len(refs)} footprints byte-identical after the round trip; result: {detail}")
         good = c1 == 0 and c2 == 0 and ok and same == len(refs)
+        if orig is not None and stripped is not None and pasted is not None:
+            kinds = sorted(set(orig) | set(stripped) | set(pasted), key=lambda k: -(pasted[k] - orig[k]))
+            changed = [f"{k} {orig[k]}/{stripped[k]}/{pasted[k]}" for k in kinds if pasted[k] != orig[k]][:8]
+            safety = ("shorting_items", "tracks_crossing", "clearance", "hole_clearance", "copper_edge_clearance")
+            worse = [k for k in safety if pasted[k] > orig[k]]
+            ev += ("; DRC by type original/stripped/pasted where it changed: " + (", ".join(changed) or "none")
+                   + ". Pours that cross the block's box are removed whole and come back only cut to the box, so "
+                   "unconnected and zone findings rising is the test's set-up, not the paste")
+            if worse:
+                good = False
+                ev += f"; NEW copper-safety findings after the paste: {', '.join(worse)}"
         if self.a.pcbdoc:
             imp = self.out / "B6" / "imported.kicad_pcb"
             c3, t3 = py([script("reference-block", "refblock.py"), "import", self.repo / self.a.pcbdoc, "-o", imp,
@@ -303,16 +339,33 @@ class Kit:
 
     def B9(self):
         notes, good = [], True
-        bom = next((p for p in (self.repo / "bom" / "bom.csv", self.repo / "bom" / "parts.csv") if p.exists()), None)
+        root, stem = self.copy("B9")
+        env = dict(HW_PROJECT_ROOT=str(root), HW_BOARD=self.board)
+        code, text = py([script("hardware-project", "export_bom.py"), "--kicad-cli", self.cli], env=env)
+        bom = root / "bom" / "bom.csv"
+        rows = bom.read_text(encoding="utf-8").count("\n") - 1 if bom.exists() else -1
+        if code != 0 or rows < 1:
+            notes.append(f"export_bom failed (exit {code}): {tail(text, 200)}; using the repo's committed BOM")
+            bom = next((p for p in (self.repo / "bom" / "bom.csv", self.repo / "bom" / "parts.csv") if p.exists()), None)
+        else:
+            notes.append("BOM from export_bom.py (with footprints)")
         if bom:
             js = self.out / "B9.stock.json"
             code, text = py([script("hardware-project", "jlc_stock.py"), bom, "--boards", "1", "--json", js], timeout=900)
             if js.exists():
                 data = json.loads(js.read_text(encoding="utf-8"))
-                checked = sum(1 for r in data["lines"] if r.get("package_check") != "unverified")
-                mism = [r["lcsc"] for r in data["lines"] if "PACKAGE MISMATCH" in r["status"]]
-                notes.append(f"jlc_stock: {len(data['lines'])} lines, {checked} package-checked, mismatches: "
-                             f"{', '.join(mism) or 'none'} (each a real error or a parser gap: look)")
+                lines_ = data["lines"]
+                found = sum(1 for r in lines_ if "NOT FOUND" not in r["status"])
+                with_pkg = sum(1 for r in lines_ if r.get("package"))
+                with_fp = sum(1 for r in lines_ if r.get("footprint") or r.get("Footprint"))
+                from collections import Counter
+                verdicts = Counter(r.get("package_check") for r in lines_)
+                mism = [f"{r['lcsc']} ({r['status'][:60]})" for r in lines_ if "PACKAGE MISMATCH" in r["status"]]
+                notes.append(f"jlc_stock exit {code}: {len(lines_)} lines, {found} found at JLCPCB, {with_pkg} with a "
+                             f"package from JLCPCB, {with_fp} with a footprint in the BOM; package check "
+                             f"{dict(verdicts)}; mismatches: {'; '.join(mism[:5]) or 'none'}"
+                             + (" (each a real error or a parser gap: look)" if mism else ""))
+                good = good and found > 0
             else:
                 good = False
                 notes.append(f"jlc_stock failed: {tail(text, 200)}")
@@ -320,11 +373,13 @@ class Kit:
             if lcsc:
                 code, text = py([script("hardware-project", "fetch_datasheet.py"), lcsc], env=dict(HW_PROJECT_ROOT=str(self.out / "B9")))
                 got = list((self.out / "B9").rglob("*.pdf"))
-                notes.append(f"fetch_datasheet {lcsc}: exit {code}, {len(got)} PDF(s)")
+                notes.append(f"fetch_datasheet {lcsc}: exit {code}, {len(got)} PDF(s)"
+                             + ("" if got else f", output: {tail(text, 250)}"))
                 good = good and code == 0 and bool(got)
         else:
             notes.append("no bom/bom.csv or bom/parts.csv: stock and datasheet not checked")
-        notes.append("easyeda2kicad " + ("installed" if shutil.which("easyeda2kicad") else "NOT installed (pip install easyeda2kicad)"))
+        notes.append("easyeda2kicad " + ("installed" if shutil.which("easyeda2kicad") else
+                                         "not installed (optional: pip install easyeda2kicad; not counted)"))
         return row("B9", "network", "PASS" if good and bom else ("FAIL" if bom else "SKIP"), "; ".join(notes))
 
 

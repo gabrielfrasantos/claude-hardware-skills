@@ -245,28 +245,34 @@ def pieces(geom):
 
 
 # ================================================================================================ net classes
-def class_widths(pro_path):
-    """net -> track width from the project's net classes (assignments, then patterns, then Default)."""
+def class_resolver(pro_path):
+    """(net -> class name, {class name: entry}) from the project's net classes, as KiCad resolves them:
+    an assignment (written by KiCad from the schematic's net-class directive labels), else the first
+    matching pattern (wildcards), else Default. A net matching several patterns gets a composite class in
+    KiCad; the first match is used here."""
     if not pro_path or not os.path.exists(pro_path):
-        return lambda net: 0.0
+        return (lambda net: "Default"), {}
     with open(pro_path) as f:
         ns = json.load(f).get("net_settings", {})
-    width = {c.get("name"): c.get("track_width") or 0.0 for c in ns.get("classes", [])}
-    default = width.get("Default", 0.0)
+    classes = {c.get("name"): c for c in ns.get("classes", [])}
     assign = ns.get("netclass_assignments") or {}
-    patterns = ns.get("netclass_patterns") or []
+    patterns = [p for p in (ns.get("netclass_patterns") or []) if p.get("pattern")]
 
     def lookup(net):
         cls = assign.get(net)
         if isinstance(cls, list):
             cls = cls[0] if cls else None
         if cls is None:
-            for p in patterns:
-                if fnmatch.fnmatchcase(net, p.get("pattern", "")):
-                    cls = p.get("netclass")
-                    break
-        return width.get(cls, default) or default
-    return lookup
+            cls = next((p.get("netclass") for p in patterns if fnmatch.fnmatchcase(net, p["pattern"])), None)
+        return cls or "Default"
+    return lookup, classes
+
+
+def class_widths(pro_path):
+    """net -> track width of its net class (Default's when it has none)."""
+    lookup, classes = class_resolver(pro_path)
+    default = (classes.get("Default") or {}).get("track_width") or 0.0
+    return lambda net: (classes.get(lookup(net)) or {}).get("track_width") or default
 
 
 # ================================================================================================ report

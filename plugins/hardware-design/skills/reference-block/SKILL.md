@@ -17,7 +17,7 @@ Copy where the layout itself is the design and the vendor measured it:
 
 | Block | Why copy |
 |---|---|
-| RF path: balun or IPD, match, antenna, the MCU's RF and SMPS parts, crystals | the match values only hold for that copper, that stack-up and that antenna; the vendor tuned and often certified it (`rf-layout`) |
+| RF path: balun or IPD, match, antenna, the MCU's RF and SMPS parts, crystals | the match values only hold for that copper, that stack-up and that antenna; the vendor tuned and often certified it. ST: copy the reference design exactly, with the same stack-up [AN5165 §6.9] (`rf-layout`) |
 | NFC or wireless-charging coil with its tuning | inductance and resonance come from the copper geometry |
 | Fast power loops: gate driver, FETs, shunts and HF bypass | loop inductance, Kelvin taps and thermal copper are layout (`power-pcb-layout` §3) |
 | A converter whose datasheet layout is the only one the vendor supports | the vendor's validation covers that layout only |
@@ -28,7 +28,11 @@ Don't copy where our constraints dominate or the vendor's layout is incidental: 
 
 ## 2. Licence and files
 
-- **Read the vendor's licence before anything is committed.** Examples: ST's evaluation-board files come under the Open Platform License (www.st.com/opla); TI's design files come with TI's own terms. If derived data may not be published, keep the block JSON in `reference/` too.
+- **Read the vendor's licence before anything is committed**, and record what it allows in the decision. Two common cases (not legal advice):
+  - **ST, Open Platform License** [OPLA]: allows use, modification, copying and distribution of the reference material, but only for application boards based on ST products, not for sale as such, and without ST's name or logo to promote the result.
+  - **TI, Important Notice** [TI-NOTICE]: allows use only to develop an application with the TI products the resource describes. Other reproduction and display is prohibited, and no further licence is granted.
+- **Default: anything derived from TI files stays in the gitignored `reference/`**: the block JSON and the exported land patterns. Commit it only after the owner has recorded a licence decision (ideally with legal advice), and never in a public repository without one. The copper on the board itself is the application TI's terms allow, but whether a public board repository counts as "display" is the owner's call.
+- For other vendors, find the licence that ships with the design files. With no licence, treat the files as all rights reserved: use them, don't commit what is derived from them.
 - `extract --files` records the sha256 of each original file in the block, so a later re-extract shows whether the vendor's files changed.
 - Every derived file carries the attribution line from the map's `source` (block JSON, exported land patterns' `descr`). Put the same line in the decision (`docs/decisions.md`, `hardware-project`) that records the copy, what was left out and every deviation.
 
@@ -116,7 +120,7 @@ Re-running is a no-op while the group exists. `--replace` removes the group's co
 - **Stack-up.** Compare the vendor's dielectric under each copied controlled-impedance line with ours, and recompute it (`rf-layout` §2). A two-layer vendor block on our four layers gets L2 under it. That shortens the reference distance, so the vendor's RF line widths no longer give 50 Ω. Either cut L2 under the line (an exception to "L2 solid", recorded) or re-width it.
 - **Fab rules.** `--fab` compares the block's narrowest track, smallest via, drill and annular ring with the fab's minimum. DRC finds the rest: the vendor's clearances, via hole-to-copper. Fix each in the copy (nudge a via, widen a gap) and list the changes in the decision.
 - **Geometry gate.** Vendor routing often has bends that aren't exactly 45°, which `pcb_rules.py check` flags. Either make the bends exact, or record DRC exclusions on those exact items so anything drawn later is still checked.
-- **Assembly spacing.** The vendor may have parts closer than our assembler allows (JLCPCB 0.5 mm). Nudge them, keep the copied tracks on the moved pads, and record it.
+- **Assembly spacing.** The vendor may have parts closer than our assembler allows. JLCPCB's minimum depends on the pair of packages, from 0.15 mm between small chips to 2 mm between BGAs [JLC-SPACING]; the placement gate checks it (`pcb-placement`). Nudge the parts, keep the copied tracks on the moved pads, and record it.
 - **Pours.** The vendor's pour priorities and connection styles come along. Check they fit our pours (`pcb-copper`). Holes in a vendor pour outline are reported, not kept.
 - **Our extras.** Protection, bulk capacitors and test points the vendor's board didn't have go around the block afterwards. `place` lists our parts that sit inside the block's box.
 - **Teardrops:** `pcb_rules.py apply` adds them to the copied pads and vias.
@@ -136,7 +140,7 @@ Re-running is a no-op while the group exists. `--replace` removes the group's co
 
 ## 7. Checklist
 
-- [ ] The licence allows what is committed. Vendor files are only in the gitignored `reference/`; the sha256s are recorded.
+- [ ] The licence allows what is committed (recorded in the decision). Vendor files, and anything TI-derived without a licence decision, are only in the gitignored `reference/`; the sha256s are recorded.
 - [ ] The map names only the parts we keep. `extract --board` ran without net conflicts, or each conflict is a recorded decision.
 - [ ] The lands match the vendor's (exported, or checked within `--tol`).
 - [ ] Placed with the owner's position and turn. `refblock.py check` passes.
@@ -149,7 +153,10 @@ Re-running is a no-op while the group exists. `--replace` removes the group's co
 
 - [KICAD-CLI] KiCad 10.0 Command-Line Interface manual, *PCB import*: `kicad-cli pcb import [--format auto|pads|altium|eagle|cadstar|fabmaster|pcad|solidworks] [--report-format none|json|text] [-o OUTPUT] INPUT_FILE`, layers mapped automatically. https://docs.kicad.org/10.0/en/cli/cli.html
 - KiCad board file format (S-expressions): https://dev-docs.kicad.org/en/file-formats/sexpr-pcb/. As KiCad 10 writes it: nets by name on every item; groups as `(group "name" (uuid ...) (members ...))`; pad and text angles absolute, in [0, 360), a pad omitting 0.
-- ST Open Platform License Agreement: https://www.st.com/opla
+- [AN5165] ST, AN5165 *How to develop RF hardware using STM32WB MCUs*, §6.9 checklist: the stack-up must match the reference design; copy it exactly. https://www.st.com/resource/en/application_note/an5165-how-to-develop-rf-hardware-using-stm32wb-mcus-stmicroelectronics.pdf
+- [OPLA] ST, Open Platform License Agreement, LICENSE and RESTRICTIONS clauses. https://www.st.com/opla
+- [TI-NOTICE] TI, *Important Notice and Disclaimer* (published with TI documents and design files). https://software-dl.ti.com/C2000/docs/software_guide/notice.html
+- [JLC-SPACING] JLCPCB, *Minimum spacing for SMD components* (package-pair table). https://jlcpcb.com/help/article/minimum-spacing-for-smd-components
 - Worked examples, embedded-pro/e-inverted-pendulum-hardware `docs/decisions.md`:
   - D-037: ST MB1355 RF corner;
   - D-039: ST MB1163 NFC coil, from Gerbers;

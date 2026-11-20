@@ -17,6 +17,13 @@ The repo is a Claude Code **plugin marketplace** (`hardware-skills`) with one pl
 | [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Set a board's KiCad rules from the fab's capabilities (JLCPCB, Seeed, or both) and gate the layout on shorts and clearance (no exclusions, plus a fab-minimum floor), DRC, and geometry (45° corners only, no mid-track branches, jogs, vias and segments per connection). Includes `pcb_rules.py` for local use and CI | ready |
 | [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Design and lay out 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, supplies, crystals, coexistence, certification, pitfalls | ready |
 
+## Plan and evals
+
+- [`docs/design.md`](docs/design.md): where the plugin is going (rules → workflow → generation), the decisions behind
+  it and the build order.
+- [`evals/`](evals/README.md): runs tasks on real boards with and without the plugin and scores the results against
+  the owner's own placement.
+
 ## Install
 
 ### Claude Code
@@ -56,6 +63,8 @@ plugins/hardware-design/
     └── <skill-name>/
         ├── SKILL.md                      # one folder per skill
         └── scripts/, profiles/           # optional helpers the skill calls
+docs/design.md                            # the plan and its decisions
+evals/                                    # cases, fixtures, metrics and the runner
 ```
 
 ## Adding or changing a skill

@@ -1,0 +1,9 @@
+{
+  "id": "efoc-placement",
+  "kind": "placement",
+  "fixture": "fixtures/efoc-anchors",
+  "prompt": "prompts/placement.md",
+  "runs": 3,
+  "timeout_min": 60,
+  "max_budget_usd": 25
+}

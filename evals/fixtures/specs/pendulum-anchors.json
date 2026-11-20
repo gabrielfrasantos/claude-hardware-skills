@@ -1,0 +1,21 @@
+{
+  "name": "pendulum-anchors",
+  "source": {
+    "repo": "embedded-pro/e-inverted-pendulum-hardware",
+    "commit": "51a4bcf6fca732c3088e1718fbdb2abbeb490ea2",
+    "board": "hardware/e-inverted-pendulum/e-inverted-pendulum.kicad_pcb"
+  },
+  "note": "The owner locks nothing on this board (D-045), so the anchors are what its decisions fix: the connectors, the switch, the mounting and bracket holes, and the three vendor copies (ST MB1355 RF corner with the MCU and crystals, D-037; ST MB1163 NFC corner, D-039; TI BOOST-DRV8711 drive stage, D-040, refs from scripts/pcb/*.json and placement.DRIVE_REFS).",
+  "anchors": {
+    "locked": false,
+    "prefixes": ["J", "SW", "MH", "MC", "MB"],
+    "refs": [
+      "AE401", "AE801", "C309", "C314", "C315", "C316", "C318", "C401", "C402", "C803", "C804", "C818", "C819", "C820",
+      "C821", "C822", "C823", "FB801", "FL401", "L301", "L302", "L401", "R401", "R804", "R805", "R806", "R810",
+      "U301", "U803", "Y301", "Y302",
+      "U501", "Q501", "Q502", "Q503", "Q504", "R509", "R512", "NT501", "NT502", "NT503", "NT504",
+      "C501", "C502", "C503", "C504", "C505", "C506", "C507", "C508", "C509", "C510", "C511", "C512", "C513",
+      "C514", "D501", "D502", "D503", "D504", "R515", "R516", "R517", "R518"
+    ]
+  }
+}

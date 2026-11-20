@@ -34,7 +34,7 @@ Measured, not felt: every step is scored by the evals in `evals/` (D5, D30).
 | Skill | State | Content |
 |---|---|---|
 | `pcb-design-rules` | extend | D11: teardrops (`apply` sets KiCad 10 teardrops on vias and PTH/SMD pads; `check` fails where they are missing), pour checks (necks below minimum width, islands, unstitched ground pieces, reference-plane cuts under signal classes), stack-up templates per layer count (4L: SIG / solid GND / PWR / SIG). KiCad 10+ only. |
-| `pcb-copper` | new | D9, D21: a standard net-class set declared in the schematic (net-class directive labels with a current field); IPC-2152 widths at ΔT 10 °C per layer's copper; nets above ~3 A on 1 oz become required pours; a net left in Default is an error; `ANALOG_SENSE` Kelvin pairs with a net-tie check. D17: fan-out, stitching, power copper, pours, simple routes and tidy are scripted; Claude or the router does short nets; the owner routes the critical ones. |
+| `pcb-copper` | new | D9, D21: a standard net-class set declared on the schematic's net-class directive labels, **the current in the class name** (`PWR_4A`, D9 as built: KiCad resolves labels to nets in the project, custom label fields are not carried); widths at ΔT 10 °C per layer's copper from IPC-2221's external fit, used for inner layers too (IPC-2152 found internal and external conductors close in temperature rise; IPC-2152 itself is charts); nets at or above the width of 3 A on 1 oz become required pours; a net left in Default is an error. Kelvin `SENSE` pairs with a net-tie check: later. D17: fan-out, stitching, power copper, pours, simple routes and tidy are scripted; Claude or the router does short nets; the owner routes the critical ones. |
 | `pcb-placement` | new | D7, D15, D25: the owner places and locks the anchors, which never move. Claude places the rest: an optimizer (ratsnest length and crossings under courtyard, keep-out and assembly-spacing limits), then Claude refines. Optional `propose` mode for anchors (report only). A placement gate runs before any routing; report-only until the evals set its limits (no worse than the human baseline + 10 % on ratsnest and estimated vias), then it fails. Includes pin assignment (D8, D16). |
 | `schematic-capture` | new | D10: schgen (Python design files → `.kicad_sch`) generalised from pendulum/e-psu: titled block boxes, function nets with pin TBD, `expected.json` netlist check and equivalence check. Hand-drawn schematics get the checks only. D19: KiCad standard libraries first; missing parts from LCSC/EasyEDA (`easyeda2kicad`) with a footprint-vs-LCSC-package check; hand transcription only as a fallback. D9: net-class directives with current. |
 | `reference-block` | new | D18: import a vendor layout (KiCad 10 opens Altium PcbDoc), select a region, map references and nets to ours, paste it with its copper and zones. Vendor files stay gitignored. Says when copying beats designing (RF, NFC, fast power loops). |
@@ -76,9 +76,9 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
 
 ## 6. Build order (D26)
 
-1. Eval harness (generic, here) and the pendulum placement case (in its repo).
-2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only).
-3. `pcb-copper` net classes.
+1. Eval harness (generic, here) and the pendulum placement case (in its repo). Done.
+2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only). Done.
+3. `pcb-copper` net classes. Done; the scripted copper of D17 follows after placement.
 4. `pcb-placement` with its gate and optimizer, then pin assignment.
 5. `hardware-project`, `schematic-capture`, `reference-block`, `power-circuit-design`.
 

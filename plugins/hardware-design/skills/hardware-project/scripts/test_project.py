@@ -153,6 +153,25 @@ class Scripts(unittest.TestCase):
             r = subprocess.run([sys.executable, str(HERE / f"{name}.py"), "--help"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, f"{name}: {r.stderr[-300:]}")
 
+    def test_bom_export_uses_the_given_kicad_cli(self):
+        # kicad-cli is often not on PATH on Windows: the BOM step must get the path the export was given
+        import export_bom
+        import export_jlcpcb
+        import export_release
+        seen, real = [], export_bom.main
+        export_bom.main = lambda: seen.append(list(sys.argv))
+        try:
+            for mod in (export_jlcpcb, export_release):
+                with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
+                    self.assertTrue(mod.run_export_bom(pathlib.Path("b.kicad_sch"), pathlib.Path(td), r"C:\KiCad\kicad-cli.exe"))
+        finally:
+            export_bom.main = real
+        self.assertEqual([a[-2:] for a in seen], [["--kicad-cli", r"C:\KiCad\kicad-cli.exe"]] * 2)
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(export_jlcpcb.run_export_bom(pathlib.Path(td) / "b.kicad_sch", pathlib.Path(td),
+                                                          str(pathlib.Path(td) / "no-such-kicad-cli")))
+        self.assertIn("[FAIL]", out.getvalue())
+
 
 if __name__ == "__main__":
     unittest.main()

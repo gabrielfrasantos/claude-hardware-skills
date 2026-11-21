@@ -153,7 +153,7 @@ def _stamp() -> str:
     return _dt.date.today().isoformat()
 
 
-def run_export_bom(sch: Path, work: Path) -> bool:
+def run_export_bom(sch: Path, work: Path, cli: str = "kicad-cli") -> bool:
     """Run scripts/export_bom.py on `sch` with its output in work/bom/
     (bom_jlc.csv: JLCPCB format). export_bom.py writes under its ROOT;
     pointing ROOT at `work` keeps the tracked bom/ files untouched."""
@@ -162,13 +162,16 @@ def run_export_bom(sch: Path, work: Path) -> bool:
 
     (work / "bom").mkdir(parents=True, exist_ok=True)
     saved_root, saved_argv = export_bom.ROOT, sys.argv
-    export_bom.ROOT, sys.argv = work, [str(SCRIPT_DIR / "export_bom.py"), str(sch)]
+    export_bom.ROOT, sys.argv = work, [str(SCRIPT_DIR / "export_bom.py"), str(sch), "--kicad-cli", cli]
     log = io.StringIO()
     try:
         with contextlib.redirect_stdout(log):
             export_bom.main()
     except subprocess.CalledProcessError as e:
         print(f"    [FAIL exit {e.returncode}] {(e.stderr or b'').decode(errors='replace').strip()}")
+        return False
+    except OSError as e:                     # kicad-cli not runnable
+        print(f"    [FAIL] {cli}: {e}")
         return False
     finally:
         export_bom.ROOT, sys.argv = saved_root, saved_argv
@@ -228,12 +231,12 @@ def export_gerbers(cli: str) -> None:
         "Drill files (Excellon, PTH/NPTH separate)")
 
 
-def export_bom() -> None:
+def export_bom(cli: str) -> None:
     label = "BOM (scripts/export_bom.py, JLCPCB columns)"
     print(f"\n>>> {label}")
     with tempfile.TemporaryDirectory() as td:
         work = Path(td)
-        if not run_export_bom(SCH_FILE, work):
+        if not run_export_bom(SCH_FILE, work, cli):
             FAILED.append(label)
             return
         shutil.copyfile(work / "bom" / "bom_jlc.csv", STAGE_DIR / "bom.csv")
@@ -333,7 +336,7 @@ def main() -> None:
     export_schematic_pdf(cli)
     export_board_pdfs(cli)
     export_gerbers(cli)
-    export_bom()
+    export_bom(cli)
     export_cpl(cli)
 
     if FAILED:

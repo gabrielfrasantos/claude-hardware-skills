@@ -151,7 +151,7 @@ def _stamp() -> str:
     return _dt.date.today().isoformat()
 
 
-def run_export_bom(sch: Path, work: Path) -> bool:
+def run_export_bom(sch: Path, work: Path, cli: str = "kicad-cli") -> bool:
     """Run scripts/export_bom.py on `sch` with its output in work/bom/
     (bom.csv: stock-check format, bom_jlc.csv: JLCPCB format). export_bom.py
     writes under its ROOT; pointing ROOT at `work` keeps the tracked bom/ files
@@ -161,13 +161,16 @@ def run_export_bom(sch: Path, work: Path) -> bool:
 
     (work / "bom").mkdir(parents=True, exist_ok=True)
     saved_root, saved_argv = export_bom.ROOT, sys.argv
-    export_bom.ROOT, sys.argv = work, [str(SCRIPT_DIR / "export_bom.py"), str(sch)]
+    export_bom.ROOT, sys.argv = work, [str(SCRIPT_DIR / "export_bom.py"), str(sch), "--kicad-cli", cli]
     log = io.StringIO()
     try:
         with contextlib.redirect_stdout(log):
             export_bom.main()
     except subprocess.CalledProcessError as e:
         print(f"    [FAIL exit {e.returncode}] {(e.stderr or b'').decode(errors='replace').strip()}")
+        return False
+    except OSError as e:                     # kicad-cli not runnable
+        print(f"    [FAIL] {cli}: {e}")
         return False
     finally:
         export_bom.ROOT, sys.argv = saved_root, saved_argv
@@ -240,11 +243,11 @@ def zip_gerbers() -> Path:
 # Assembly: BOM + CPL in JLCPCB column format
 # ---------------------------------------------------------------------------
 
-def export_bom(work: Path) -> bool:
+def export_bom(work: Path, cli: str) -> bool:
     """JLCPCB BOM (Comment, Designator, Footprint, LCSC Part #) from
     scripts/export_bom.py. The stock-check BOM stays in work/bom/bom.csv."""
     print("\n>>> JLCPCB BOM (scripts/export_bom.py)")
-    if not run_export_bom(SCH_FILE, work):
+    if not run_export_bom(SCH_FILE, work, cli):
         return False
     shutil.copyfile(work / "bom" / "bom_jlc.csv", OUT_DIR / "bom.csv")
     print("    [OK] -> bom.csv")
@@ -384,7 +387,7 @@ def main() -> None:
         (OUT_DIR / "stock_check.json").unlink(missing_ok=True)
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
-            bom_ok = export_bom(work)
+            bom_ok = export_bom(work, cli)
             export_cpl(cli)
             check_bom_vs_cpl()
             if args.stock_check and bom_ok:

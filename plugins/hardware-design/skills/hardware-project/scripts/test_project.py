@@ -96,6 +96,14 @@ class Stock(unittest.TestCase):
     def check(self, *rows):
         return jlc_stock.check_rows(list(rows), boards=5, attrition=0.1, find=self.PARTS.get)
 
+    def test_shrink_packages_compare_by_body(self):
+        # TI DCT: KiCad SSOP-8 2.95x2.8, LCSC "MSOP-8-2.8mm" (C18213, SN74LVC3G17DCTR)
+        pc = jlc_stock.package_check
+        self.assertEqual(pc("Package_SO:SSOP-8_2.95x2.8mm_P0.65mm", "MSOP-8-2.8mm")[0], "ok")
+        self.assertEqual(pc("Package_SO:SSOP-8_5.3x6.2mm_P0.65mm", "MSOP-8-2.8mm")[0], "mismatch")
+        self.assertEqual(pc("Package_SO:TSSOP-8_4.4x3mm_P0.65mm", "MSOP-8")[0], "unverified")
+        self.assertEqual(pc("Package_SO:SSOP-8_2.95x2.8mm_P0.65mm", "SOIC-8")[0], "mismatch")
+
     def test_package_lifecycle_and_alternates(self):
         ok = dict(lcsc="C1", mpn="CL10B104KB8NNNC", qty="4", footprint="C_0603_1608Metric")
         report, problems, notes = self.check(ok)

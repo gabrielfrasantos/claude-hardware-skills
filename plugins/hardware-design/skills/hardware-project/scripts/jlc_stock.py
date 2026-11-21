@@ -36,6 +36,9 @@ SAME = {"SOIC": "SO", "SOP": "SO", "SO": "SO", "VFQFPN": "QFN", "UFQFPN": "QFN",
         "TQFP": "QFP", "LQFP": "QFP", "QFP": "QFP", "VSSOP": "MSOP", "MSOP": "MSOP"}
 CODED = re.compile(r"(?<![A-Z])(SOT|SOD|SC|TO)-?(\d+)(?:-(\d+))?")   # the number is a package code, not pins
 DEFAULT_PINS = {"SOT-23": 3}
+# Names vendors use for the same shrink small-outline bodies: TI's DCT (2.95 x 2.8 mm, 0.65 mm) is SSOP-8 in KiCad
+# and "MSOP-8-2.8mm" at LCSC. Within this group the body size decides, not the name.
+SHRINK = {"SSOP", "MSOP", "TSSOP"}
 BAD_LIFECYCLE = re.compile(r"NRND|EOL|OBSOLETE|LTB|LAST.TIME|DISCONTINU", re.I)
 
 
@@ -76,6 +79,9 @@ def _shape(text):
             break
     body = re.search(r"(\d+(?:\.\d+)?)\s*[X*]\s*(\d+(?:\.\d+)?)", t)
     size = tuple(sorted(float(v) for v in body.groups())) if body else None
+    if size is None and fam:                       # a lone body size after the name: "MSOP-8-2.8MM"
+        one = re.search(rf"{fam}-?{pins}[- ]+(\d+(?:\.\d+)?)\s*MM", t)
+        size = (float(one.group(1)),) if one else None
     return chip.group(1) if chip and not fam else None, fam, pins, size
 
 
@@ -92,9 +98,16 @@ def package_check(footprint, package):
     if (fc and pf) or (pc and ff):
         return "mismatch", f"{fc or name(ff, fp)} vs {pc or name(pf, pp)}"
     if ff and pf:
+        if ff != pf and {ff, pf} <= SHRINK and fp == pp:
+            near = fs and ps and any(abs(a - b) <= 0.15 for a in fs for b in ps)
+            if near:
+                return "ok", f"{name(ff, fp)} = {name(pf, pp)} (body {fs} / {ps})"
+            if fs and ps:
+                return "mismatch", f"{name(ff, fp)} vs {name(pf, pp)}: body {fs} vs {ps}"
+            return "unverified", f"{name(ff, fp)} vs {name(pf, pp)}: vendors name these bodies differently, check by hand"
         if ff != pf or (fp is not None and pp is not None and fp != pp):
             return "mismatch", f"{name(ff, fp)} vs {name(pf, pp)}"
-        if fs and ps and any(abs(a - b) > 0.15 for a, b in zip(fs, ps)):
+        if fs and ps and len(fs) == len(ps) and any(abs(a - b) > 0.15 for a, b in zip(fs, ps)):
             return "mismatch", f"body {fs} vs {ps}"
         return "ok", name(ff, fp if fp is not None else pp)
     return "unverified", f"can't compare '{footprint}' with '{package}': check by hand"

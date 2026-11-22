@@ -19,6 +19,8 @@ python3 scripts/sync.py hardware/board/board.kicad_pcb --check    # CI: exit 1 i
 ```
 
 - It exports KiCad's netlist with `kicad-cli` (or reads `--netlist`). Footprints come from the project's `fp-lib-table` (`${KIPRJMOD}`) and then the global one (`~/.config/kicad/10.0/fp-lib-table`, `${KICAD10_FOOTPRINT_DIR}`).
+- **Matches** each footprint to its symbol by the symbol link (path: sheet and symbol UUIDs), not by reference. A reannotation that swaps R1 and R2 renames the two placed footprints; each circuit keeps its position, rotation, side and lock. A footprint with no link (an older board) or a link to no symbol falls back to its reference and is listed as *matched by reference*. Two footprints linked to one symbol, or an unlinked footprint sharing a linked one's reference, is an *ambiguous match* error.
+- **All or nothing:** on any error (ambiguous match, footprint not found, pad missing, back-side replacement) it writes nothing and exits 1; fix the cause and run it again. A successful run writes a temporary file next to the board and renames it over the board.
 - **Adds** a footprint for each new symbol. New parts are parked in rows below the board outline, packed by courtyard, so they don't overlap.
 - **Updates** each footprint from the schematic:
   - reference, value and fields (LCSC, MPN, Datasheet, …), and the link back to the symbol (path, sheet);

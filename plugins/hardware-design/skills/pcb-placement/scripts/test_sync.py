@@ -4,6 +4,7 @@ import contextlib
 import io
 import os
 import pathlib
+import re
 import sys
 import tempfile
 import unittest
@@ -72,6 +73,19 @@ TWO = netlist([comp("R1", "10k", "lib:R_0402"), comp("R2", "1k", "lib:R_0402")],
               {"VIN": [("R1", "1")], "MID": [("R1", "2"), ("R2", "1")], "GND": [("R2", "2")]})
 
 
+def place(text, ref, at, locked=False, layer=None):
+    """Move one footprint in the board text: new (at ...), optionally locked or on another layer."""
+    i = text.index(f'(property "Reference" "{ref}"')
+    head = text.rindex("(footprint", 0, i)
+    a = text.index("(at ", head)
+    pre = text[head:a]
+    if layer:
+        pre = pre.replace('(layer "F.Cu")', f'(layer "{layer}")', 1)
+    if locked:
+        pre = pre.replace("(layer ", "(locked yes)\n\t\t(layer ", 1)
+    return text[:head] + pre + at + text[text.index(")", a) + 1:]
+
+
 class Sync(unittest.TestCase):
     def test_new_board_then_nothing_to_do(self):
         p = Project()
@@ -138,6 +152,89 @@ class Sync(unittest.TestCase):
         code, out = p.run(netlist([comp("U1", "X", "lib:Nope")], {}))
         self.assertEqual(code, 1)
         self.assertIn("footprint not found: U1: lib:Nope", out)
+
+    def test_reannotation_keeps_each_symbol_where_it_was_placed(self):
+        p = Project()
+        p.run(TWO)
+        text = p.board.read_text()
+        text = place(text, "R1", "(at 10 20 90)", locked=True)
+        text = place(text, "R2", "(at 30 40 180)", layer="B.Cu")
+        p.board.write_text(text)
+        # Reannotate: R1 and R2 swap references; each symbol keeps its UUID, value and nets.
+        swapped = netlist([comp("R2", "10k", "lib:R_0402").replace('"R2-uuid"', '"R1-uuid"'),
+                           comp("R1", "1k", "lib:R_0402").replace('"R1-uuid"', '"R2-uuid"')],
+                          {"VIN": [("R2", "1")], "MID": [("R2", "2"), ("R1", "1")], "GND": [("R1", "2")]})
+        code, out = p.run(swapped)
+        self.assertEqual(code, 0, out)
+        old_r1, old_r2 = p.fp("R2"), p.fp("R1")     # the footprints now carry the new references
+        self.assertEqual(S.val(old_r1, "path"), "/R1-uuid")
+        self.assertEqual(S.child(old_r1, "at")[1:], ["10", "20", "90"])
+        self.assertIsNotNone(S.child(old_r1, "locked"))
+        self.assertEqual(S.val(old_r1, "layer"), "F.Cu")
+        self.assertIn('(property "Value" "10k"', S.dump(old_r1))
+        self.assertEqual(S.val(old_r2, "path"), "/R2-uuid")
+        self.assertEqual(S.child(old_r2, "at")[1:], ["30", "40", "180"])
+        self.assertIsNone(S.child(old_r2, "locked"))
+        self.assertEqual(S.val(old_r2, "layer"), "B.Cu")
+        self.assertIn('(property "Value" "1k"', S.dump(old_r2))
+
+    def test_board_without_symbol_links_matches_by_reference(self):
+        p = Project()
+        p.run(TWO)
+        p.board.write_text(re.sub(r'\n\s*\(path "[^"]*"\)', "", p.board.read_text()))
+        code, out = p.run(TWO)
+        self.assertEqual(code, 0, out)
+        self.assertIn("matched by reference (2): R1, R2", out)
+        self.assertEqual(S.val(p.fp("R1"), "path"), "/R1-uuid")
+        self.assertNotIn("added", out)
+
+    def test_recreated_symbol_relinks_by_reference_in_place(self):
+        p = Project()
+        p.run(TWO)
+        p.board.write_text(place(p.board.read_text(), "R1", "(at 10 20 90)"))
+        code, out = p.run(TWO.replace('"R1-uuid"', '"R1-new"'))
+        self.assertEqual(code, 0, out)
+        self.assertIn("matched by reference (1): R1", out)
+        self.assertNotIn("removed", out)
+        self.assertEqual(S.val(p.fp("R1"), "path"), "/R1-new")
+        self.assertEqual(S.child(p.fp("R1"), "at")[1:], ["10", "20", "90"])
+
+    def test_duplicate_symbol_link_is_ambiguous_and_writes_nothing(self):
+        p = Project()
+        p.run(TWO)
+        text = p.board.read_text()
+        i = text.index('(property "Reference" "R1"')
+        head = text.rindex("(footprint", 0, i)
+        end = S.top_spans(text)
+        block = next(text[s:e] for s, e, h in end if s == head)
+        p.board.write_text(text[:head] + block.replace('"R1"', '"R9"', 1) + "\n\t" + text[head:])
+        before = p.board.read_bytes()
+        code, out = p.run(TWO.replace('(value "10k")', '(value "22k")'))
+        self.assertEqual(code, 1, out)
+        self.assertIn("ERROR ambiguous match:", out)
+        self.assertIn("/R1-uuid", out)
+        self.assertEqual(p.board.read_bytes(), before)
+
+    def test_failed_sync_writes_nothing_and_retry_applies_once(self):
+        p = Project()
+        p.run(TWO)
+        before = p.board.read_bytes()
+        bad = TWO.replace('(value "10k")', '(value "22k")').replace(
+            '(footprint "lib:R_0402") (fields (field (name "LCSC") "C2")',
+            '(footprint "lib:R_MISSING") (fields (field (name "LCSC") "C2")')
+        code, out = p.run(bad)
+        self.assertEqual(code, 1, out)
+        self.assertIn("footprint not found: R2: lib:R_MISSING", out)
+        self.assertIn("nothing written", out)
+        self.assertEqual(p.board.read_bytes(), before)
+        fixed = TWO.replace('(value "10k")', '(value "22k")')
+        code, out = p.run(fixed)
+        self.assertEqual(code, 0, out)
+        self.assertIn("updated (1): R1", out)
+        self.assertEqual(p.board.read_text().count('(property "Value" "22k"'), 1)
+        self.assertEqual(p.run(fixed, "--check")[0], 0)
+        self.assertEqual(sorted(f.name for f in p.dir.iterdir() if f.name.startswith("b.")),
+                         ["b.kicad_pcb", "b.net"])
 
     def test_dnp_and_bom(self):
         p = Project()

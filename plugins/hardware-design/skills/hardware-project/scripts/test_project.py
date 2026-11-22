@@ -96,6 +96,14 @@ class Stock(unittest.TestCase):
     def check(self, *rows):
         return jlc_stock.check_rows(list(rows), boards=5, attrition=0.1, find=self.PARTS.get)
 
+    def test_shrink_packages_compare_by_body(self):
+        # TI DCT: KiCad SSOP-8 2.95x2.8, LCSC "MSOP-8-2.8mm" (C18213, SN74LVC3G17DCTR)
+        pc = jlc_stock.package_check
+        self.assertEqual(pc("Package_SO:SSOP-8_2.95x2.8mm_P0.65mm", "MSOP-8-2.8mm")[0], "ok")
+        self.assertEqual(pc("Package_SO:SSOP-8_5.3x6.2mm_P0.65mm", "MSOP-8-2.8mm")[0], "mismatch")
+        self.assertEqual(pc("Package_SO:TSSOP-8_4.4x3mm_P0.65mm", "MSOP-8")[0], "unverified")
+        self.assertEqual(pc("Package_SO:SSOP-8_2.95x2.8mm_P0.65mm", "SOIC-8")[0], "mismatch")
+
     def test_package_lifecycle_and_alternates(self):
         ok = dict(lcsc="C1", mpn="CL10B104KB8NNNC", qty="4", footprint="C_0603_1608Metric")
         report, problems, notes = self.check(ok)
@@ -152,6 +160,25 @@ class Scripts(unittest.TestCase):
         for name in names:
             r = subprocess.run([sys.executable, str(HERE / f"{name}.py"), "--help"], capture_output=True, text=True)
             self.assertEqual(r.returncode, 0, f"{name}: {r.stderr[-300:]}")
+
+    def test_bom_export_uses_the_given_kicad_cli(self):
+        # kicad-cli is often not on PATH on Windows: the BOM step must get the path the export was given
+        import export_bom
+        import export_jlcpcb
+        import export_release
+        seen, real = [], export_bom.main
+        export_bom.main = lambda: seen.append(list(sys.argv))
+        try:
+            for mod in (export_jlcpcb, export_release):
+                with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
+                    self.assertTrue(mod.run_export_bom(pathlib.Path("b.kicad_sch"), pathlib.Path(td), r"C:\KiCad\kicad-cli.exe"))
+        finally:
+            export_bom.main = real
+        self.assertEqual([a[-2:] for a in seen], [["--kicad-cli", r"C:\KiCad\kicad-cli.exe"]] * 2)
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()) as out:
+            self.assertFalse(export_jlcpcb.run_export_bom(pathlib.Path(td) / "b.kicad_sch", pathlib.Path(td),
+                                                          str(pathlib.Path(td) / "no-such-kicad-cli")))
+        self.assertIn("[FAIL]", out.getvalue())
 
 
 if __name__ == "__main__":

@@ -783,6 +783,10 @@ def dru_block(fab_min, fabs, layers, low_classes, roles=None, teardrops=None):
         lines += [f'(rule "fab: pad to pad (net classes below {pad_pad:g} mm)"',
                   f"  (condition \"A.Type == 'Pad' && B.Type == 'Pad' && {any_of('A')} && {any_of('B')}\")",
                   f"  (constraint clearance (min {mm(pad_pad)})))"]
+    if "inner_pth_to_copper" in fab_min:     # JLCPCB: PTH pad hole to inner-layer copper 0.3 mm (outer 0.28)
+        lines += ['(rule "fab: plated pad hole to inner-layer copper"', "  (layer inner)",
+                  "  (condition \"A.Type == 'Pad' && A.Pad_Type == 'Through-hole'\")",
+                  f"  (constraint hole_clearance (min {mm(fab_min['inner_pth_to_copper'])})))"]
     if "inner_track" in fab_min:
         lines += ['(rule "fab: inner-layer track width"', "  (layer inner)",
                   f"  (constraint track_width (min {mm(fab_min['inner_track'])})))"]

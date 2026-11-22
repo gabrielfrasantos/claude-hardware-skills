@@ -141,6 +141,15 @@ class Rules(unittest.TestCase):
         self.assertIn("A.NetClass == 'Fine'", block)
         self.assertIn("track_angle (min 135)", block)   # "135deg" makes KiCad drop the whole file
 
+    def test_inner_layer_pth_clearance_on_four_layers(self):
+        # JLCPCB: PTH pad hole to inner-layer copper 0.3 mm, outer 0.28 mm (capabilities page, 2026-11-22)
+        fab_min, _, _ = pcb_rules.combined_rules(["jlcpcb"], 4)
+        block = pcb_rules.dru_block(fab_min, ["jlcpcb"], 4, [])
+        self.assertIn('(rule "fab: plated pad hole to inner-layer copper"\n  (layer inner)', block)
+        self.assertIn("hole_clearance (min 0.3mm)", block)
+        self.assertNotIn("inner-layer copper", pcb_rules.dru_block(*pcb_rules.combined_rules(["jlcpcb"], 2)[:1],
+                                                                   ["jlcpcb"], 2, []))
+
 
 if __name__ == "__main__":
     unittest.main()

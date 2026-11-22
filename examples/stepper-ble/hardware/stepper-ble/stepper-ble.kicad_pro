@@ -1,0 +1,374 @@
+{
+  "meta": {
+    "filename": "stepper-ble.kicad_pro",
+    "version": 3
+  },
+  "net_settings": {
+    "netclass_assignments": {
+      "+3V3": [
+        "PWR_0p5A"
+      ],
+      "+5V": [
+        "PWR_1A"
+      ],
+      "/1 Power input/RP_GATE": [
+        "SIGNAL"
+      ],
+      "/1 Power input/VIN_N": [
+        "PWR_3A"
+      ],
+      "/1 Power input/VIN_RAW": [
+        "PWR_3A"
+      ],
+      "/2 Logic supplies/5V_BUCK": [
+        "PWR_1A"
+      ],
+      "/2 Logic supplies/BOOT_BUCK": [
+        "PWR_1A"
+      ],
+      "/2 Logic supplies/BUCK_VCC_5V": [
+        "PWR_0p5A"
+      ],
+      "/2 Logic supplies/EN_BUCK": [
+        "SIGNAL"
+      ],
+      "/2 Logic supplies/FB_BUCK": [
+        "SIGNAL"
+      ],
+      "/2 Logic supplies/SW_BUCK": [
+        "PWR_1A"
+      ],
+      "/3 Motor driver/A1HS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/A1LS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/A2HS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/A2LS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/AISENN": [
+        "SENSE"
+      ],
+      "/3 Motor driver/AISENP": [
+        "SENSE"
+      ],
+      "/3 Motor driver/AOUT1": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/AOUT2": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/B1HS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/B1LS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/B2HS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/B2LS": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/BISENN": [
+        "SENSE"
+      ],
+      "/3 Motor driver/BISENP": [
+        "SENSE"
+      ],
+      "/3 Motor driver/BOUT1": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/BOUT2": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/CP1": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/CP2": [
+        "SIGNAL"
+      ],
+      "/3 Motor driver/DRV_1V8": [
+        "PWR_0p5A"
+      ],
+      "/3 Motor driver/DRV_5V": [
+        "PWR_0p5A"
+      ],
+      "/3 Motor driver/ISEN_A": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/ISEN_B": [
+        "PWR_2A"
+      ],
+      "/3 Motor driver/VCP": [
+        "PWR_0p5A"
+      ],
+      "/4 MCU/BOOT0": [
+        "SIGNAL"
+      ],
+      "/4 MCU/HSE_IN": [
+        "CLK"
+      ],
+      "/4 MCU/HSE_OUT": [
+        "CLK"
+      ],
+      "/4 MCU/LSE_IN": [
+        "CLK"
+      ],
+      "/4 MCU/LSE_OUT": [
+        "CLK"
+      ],
+      "/4 MCU/SMPS_LX": [
+        "PWR_0p5A"
+      ],
+      "/4 MCU/SMPS_MID": [
+        "PWR_0p5A"
+      ],
+      "/4 MCU/VFBSMPS": [
+        "PWR_0p5A"
+      ],
+      "/5 Radio/ANT_FEED": [
+        "RF_50"
+      ],
+      "/5 Radio/RF_OUT": [
+        "RF_50"
+      ],
+      "/6 USB/CC1": [
+        "SIGNAL"
+      ],
+      "/6 USB/CC2": [
+        "SIGNAL"
+      ],
+      "/6 USB/USB_C_DM": [
+        "DIFF_90"
+      ],
+      "/6 USB/USB_C_DP": [
+        "DIFF_90"
+      ],
+      "/7 User interface and debug/LED_FAULT_A": [
+        "SIGNAL"
+      ],
+      "/7 User interface and debug/LED_STATUS_A": [
+        "SIGNAL"
+      ],
+      "BTN_USER": [
+        "SIGNAL"
+      ],
+      "DRV_BEMF": [
+        "ANALOG"
+      ],
+      "DRV_DIR": [
+        "SIGNAL"
+      ],
+      "DRV_FAULTN": [
+        "SIGNAL"
+      ],
+      "DRV_MISO": [
+        "SIGNAL"
+      ],
+      "DRV_MOSI": [
+        "SIGNAL"
+      ],
+      "DRV_RESET": [
+        "SIGNAL"
+      ],
+      "DRV_SCLK": [
+        "SIGNAL"
+      ],
+      "DRV_SCS": [
+        "SIGNAL"
+      ],
+      "DRV_SLEEPN": [
+        "SIGNAL"
+      ],
+      "DRV_STALLN": [
+        "SIGNAL"
+      ],
+      "DRV_STEP": [
+        "SIGNAL"
+      ],
+      "GND": [
+        "GND"
+      ],
+      "LED_FAULT": [
+        "SIGNAL"
+      ],
+      "LED_STATUS": [
+        "SIGNAL"
+      ],
+      "NRST": [
+        "SIGNAL"
+      ],
+      "NTC_SENSE": [
+        "ANALOG"
+      ],
+      "RF_IN": [
+        "RF_50"
+      ],
+      "SWCLK": [
+        "SIGNAL"
+      ],
+      "SWDIO": [
+        "SIGNAL"
+      ],
+      "SWO": [
+        "SIGNAL"
+      ],
+      "USB_DM": [
+        "DIFF_90"
+      ],
+      "USB_DP": [
+        "DIFF_90"
+      ],
+      "VBUS": [
+        "PWR_1A"
+      ],
+      "VDDA": [
+        "PWR_0p5A"
+      ],
+      "VM": [
+        "PWR_3A"
+      ],
+      "VM_SENSE": [
+        "ANALOG"
+      ]
+    },
+    "classes": [
+      {
+        "name": "ANALOG",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      },
+      {
+        "name": "CLK",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      },
+      {
+        "name": "DIFF_90",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.3,
+        "diff_pair_width": 0.3,
+        "diff_pair_gap": 0.15
+      },
+      {
+        "name": "GND",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      },
+      {
+        "name": "PWR_0p5A",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      },
+      {
+        "name": "PWR_1A",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.3
+      },
+      {
+        "name": "PWR_2A",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.781
+      },
+      {
+        "name": "PWR_3A",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 1.367
+      },
+      {
+        "name": "RF_50",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.355
+      },
+      {
+        "name": "SENSE",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      },
+      {
+        "name": "SIGNAL",
+        "priority": 0,
+        "clearance": 0.15,
+        "via_drill": 0.3,
+        "via_diameter": 0.6,
+        "track_width": 0.15
+      }
+    ]
+  },
+  "board": {
+    "design_settings": {
+      "rules": {
+        "min_clearance": 0.09,
+        "min_track_width": 0.09,
+        "min_via_annular_width": 0.05,
+        "min_via_diameter": 0.25,
+        "min_through_hole_diameter": 0.15,
+        "min_hole_to_hole": 0.2,
+        "min_hole_clearance": 0.2,
+        "min_copper_edge_clearance": 0.2,
+        "min_silk_clearance": 0.15,
+        "min_text_height": 1.0,
+        "min_text_thickness": 0.15
+      },
+      "rule_severities": {
+        "shorting_items": "error",
+        "tracks_crossing": "error",
+        "clearance": "error",
+        "hole_clearance": "error",
+        "hole_to_hole": "error",
+        "copper_edge_clearance": "error",
+        "zones_intersect": "error",
+        "solder_mask_bridge": "error",
+        "creepage": "error",
+        "annular_width": "error",
+        "track_width": "error",
+        "drill_out_of_range": "error",
+        "track_angle": "error"
+      },
+      "teardrop_options": [
+        {
+          "td_onpthpad": true,
+          "td_onsmdpad": true,
+          "td_onvia": true,
+          "td_onroundshapesonly": false,
+          "td_ontrackend": false
+        }
+      ]
+    }
+  }
+}

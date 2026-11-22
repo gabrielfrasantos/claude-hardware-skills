@@ -1,0 +1,24 @@
+# Pin needs for stepper-ble (pcb-placement pins.py), MCU U401 STM32WB55CGU6 (UFQFPN48).
+# There is no firmware repo (D-017); these needs come from the requirements and decisions they cite.
+#   function       signals                          group   source
+DRV_SCLK         SPI{n}_SCK                       drv     # DRV8711 SPI, mode 0, SCS active high (SLVSC40H 7.5) HW-MOT-004
+DRV_MOSI         SPI{n}_MOSI                      drv
+DRV_MISO         SPI{n}_MISO                      drv
+DRV_SCS          GPIO                                     # SCS is active high: a GPIO, not the SPI NSS
+DRV_STEP         TIM*_CH*                                 # step pulses from a timer output, HW-MOT-004
+DRV_DIR          GPIO
+DRV_SLEEPN       GPIO                                     # safe state: 100k pull-down holds sleep (D-018)
+DRV_RESET        GPIO                                     # safe state: 10k pull-up holds reset (D-018)
+DRV_FAULTN       EXTI                                     # open drain, 10k pull-up, HW-MOT-006
+DRV_STALLN       EXTI                                     # open drain, 10k pull-up, HW-MOT-003
+DRV_BEMF         ADC1_IN*                                 # HW-MOT-003
+VM_SENSE         ADC1_IN*                                 # HW-PWR-006
+NTC_SENSE        ADC1_IN*                                 # HW-MOT-005
+LED_STATUS       GPIO                                     # HW-UI-001
+LED_FAULT        GPIO                                     # HW-UI-001
+BTN_USER         EXTI                                     # HW-UI-002
+USB_DM           PA11                                     # the only USB pins, HW-USB-001
+USB_DP           PA12
+SWDIO            PA13                                     # SWD, HW-DBG-001
+SWCLK            PA14
+SWO              PB3

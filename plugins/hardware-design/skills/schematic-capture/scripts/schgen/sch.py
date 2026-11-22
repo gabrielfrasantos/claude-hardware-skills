@@ -39,6 +39,28 @@ def uid(*parts):
     return Str(str(uuid.uuid5(NAMESPACE, "/".join(map(str, parts)))))
 
 
+TEXT_W = 0.9
+TEXT_GAP = 0.3
+PAPER = {"A4": (297.0, 210.0), "A3": (420.0, 297.0), "A2": (594.0, 420.0)}
+
+
+def text_box(x, y, s, size, ang, justify, bottom, width=None):
+    """Approximate (x0, y0, x1, y1) of a one-line text: anchored at (x, y), justified left / right / centred,
+    vertically centred unless `bottom` (a label sits on its anchor). ang 90 runs bottom to top. `size` is the
+    box height; `width` the font size the characters are measured with (default `size`)."""
+    w, h = len(s) * (width or size) * TEXT_W, size
+    j = "left" if "left" in justify else "right" if "right" in justify else "center"
+    a0 = 0 if j == "left" else -w if j == "right" else -w / 2
+    c0, c1 = (-h, 0) if bottom else (-h / 2, h / 2)
+    if ang in (90, 270):
+        return (x + c0, y - a0 - w, x + c1, y - a0)
+    return (x + a0, y + c0, x + a0 + w, y + c1)
+
+
+def overlap(a, b, gap=0.1):
+    return a[0] < b[2] - gap and b[0] < a[2] - gap and a[1] < b[3] - gap and b[1] < a[3] - gap
+
+
 def snap(v):
     return round(round(v / GRID) * GRID, 4)
 
@@ -160,6 +182,7 @@ class Sheet:
         self.rails, self.links, self.paths, self.labels = [], [], [], []
         self.desc = []
         self.netclasses = []
+        self.class_box = None
         self.global_all = False
         project.sheets.append(self)
 
@@ -211,6 +234,12 @@ class Sheet:
         """A net-class directive label for `net` (e.g. "PWR_4A", see the pcb-copper skill), placed on one of the
         net's label points on this sheet. KiCad resolves it to the net and writes the assignment into the project."""
         self.netclasses.append((net, cls))
+
+    def class_table(self, x, y, rows=12, col_w=60.96, pitch=5.08, title="Net classes"):
+        """Draw this sheet's net-class directives as a table at (x, y) instead of on the circuit's label points:
+        one row per net, its label (or power symbol) wired to its class flag, `rows` rows per column. Keeps the
+        class names off the circuit, where they overlap pins and labels."""
+        self.class_box = (snap(x), snap(y), rows, col_w, pitch, title)
 
     def decided(self, part):
         """Pin numbers of `part` that already have a net or a no-connect on this sheet."""
@@ -302,6 +331,7 @@ class Project:
         self.lint = []
         self.flag_count = 0
         self.pwr_count = 0
+        self._tb, self._owner, self._owner_rot = None, None, 0
 
     def problems(self):
         out, refs = [], {}
@@ -366,10 +396,17 @@ class Project:
         return e
 
     def _prop(self, key, val, x, y, ang=0, justify=None, hide=False):
+        if not hide and self._tb is not None:
+            screen = (ang - self._owner_rot) % 180
+            j = justify or ""
+            if (ang + self._owner_rot) % 360 == 180:
+                j = j.replace("left", "@").replace("right", "left").replace("@", "right")
+            self._tb.append((text_box(x, y, val, FONT, 90 if screen else 0, j, False), self._owner, val))
         return [Sym("property"), Str(key), Str(val), [Sym("at"), r3(x), r3(y), ang],
                 self._effects(FONT, justify, hide)]
 
     def _symbol_inst(self, sh, p):
+        self._owner, self._owner_rot = p.ref, p.rot
         node = [Sym("symbol"), [Sym("lib_id"), Str(p.lib_id)], [Sym("at"), p.x, p.y, p.rot]]
         if p.mirror:
             node.append([Sym("mirror"), Sym(p.mirror)])
@@ -406,8 +443,18 @@ class Project:
             node.append(self._prop("Reference", p.ref, cx, by0 - 1.9, fa))
             node.append(self._prop("Value", p.value, cx, by1 + 2.5, fa))
         else:
-            node.append(self._prop("Reference", p.ref, bx0, by0 - 1.27, 0, "left"))
-            node.append(self._prop("Value", p.value, bx0, by1 + 1.9, 0, "left"))
+            pins = [p.pin(q.number) for q in p.unit_pins()]
+            top = any(q.out == (0, -1) for q in pins)
+            bottom = any(q.out == (0, 1) for q in pins)
+            if bottom and not top:
+                node.append(self._prop("Reference", p.ref, bx0, by0 - 3.81, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by0 - 1.27, 0, "left"))
+            elif top and not bottom:
+                node.append(self._prop("Reference", p.ref, bx0, by1 + 1.9, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by1 + 4.45, 0, "left"))
+            else:
+                node.append(self._prop("Reference", p.ref, bx0, by0 - 1.27, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by1 + 1.9, 0, "left"))
         for k, v in p.fields.items():
             node.append(self._prop(k, v, p.x, p.y, 0, hide=True))
         for number in dict.fromkeys(q.number for q in p.sym.pins):
@@ -416,6 +463,29 @@ class Project:
                      [Sym("path"), Str(f"/{self.root_uuid}/{sh.uuid}"), [Sym("reference"), Str(p.ref)],
                       [Sym("unit"), p.unit]]]])
         return node
+
+    def _text_lint(self, sh, bboxes):
+        """Report text that overlaps other text or another part's body: references, values, labels, notes."""
+        tb = self._tb
+        w, h = PAPER.get(sh.paper, (420.0, 297.0))
+        for a, oa, sa in tb:
+            if a[0] < 10 or a[1] < 10 or a[2] > w - 10 or a[3] > h - 10:
+                self.lint.append(f"{sh.name}: text '{sa}' runs past the sheet border")
+        for i, (a, oa, sa) in enumerate(tb):
+            for b, ob, sb in tb[i + 1:]:
+                if oa != ob and overlap(a, b, -TEXT_GAP):
+                    self.lint.append(f"{sh.name}: text '{sa}' overlaps '{sb}'")
+            for part, body in bboxes:
+                if part.ref != oa and overlap(a, body, -TEXT_GAP):
+                    self.lint.append(f"{sh.name}: text '{sa}' overlaps {part.ref}")
+                    continue
+                for q in ([] if str(oa).startswith("#") else part.unit_pins()):
+                    pr = part.pin(q.number)
+                    x0, y0 = pr.x - pr.out[0] * 2.54, pr.y - pr.out[1] * 2.54
+                    pin = (min(pr.x, x0) - 0.8, min(pr.y, y0) - 0.8, max(pr.x, x0) + 0.8, max(pr.y, y0) + 0.8)
+                    if overlap(a, pin, 0.1):
+                        self.lint.append(f"{sh.name}: text '{sa}' overlaps pin {part.ref}.{q.number}")
+                        break
 
     def _power_part(self, sh, net, x, y, out):
         lib_id = self.power_syms[net]
@@ -428,6 +498,7 @@ class Project:
                     {"Footprint": "", "Datasheet": ""}, False)
 
     def _sheet_tree(self, sh):
+        self._tb, self._owner, self._owner_rot = [], None, 0
         counter = [0]
 
         def nid(kind):
@@ -454,6 +525,14 @@ class Project:
         def put_label(net, x, y, out):
             x, y = r3(x), r3(y)
             label_pts.append((net, x, y))
+            if net not in self.power_syms:
+                ang_ = {(1, 0): 0, (-1, 0): 180, (0, -1): 90, (0, 1): 270}[out]
+                glob = net in self.global_nets
+                gl = 1.27 if glob else 0.0
+                bx = text_box(x + out[0] * gl, y + out[1] * gl, (net + "  ") if glob else net,
+                              FONT * 1.5 if glob else FONT * 1.4, 90 if ang_ in (90, 270) else 0,
+                              "left" if ang_ in (0, 90) else "right", not glob, width=FONT)
+                self._tb.append((bx, ("label", net, x, y), net))
             if net in self.power_syms:
                 extra_parts.append(self._power_part(sh, net, x, y, out))
                 return
@@ -663,13 +742,13 @@ class Project:
             for comp in components.values():
                 if any(n == net and any(on_seg((x, y), sg) for sg in comp) for n, x, y in label_pts):
                     continue
-                need = len(net) * 1.1 + 1.27
+                need = len(net) * FONT * TEXT_W + 1.27 + 4.0
                 flat = [sg for sg in comp if sg[1] == sg[3]]
                 fits = [sg for sg in flat if abs(sg[2] - sg[0]) >= need]
                 if fits or flat:
                     x1, y1, x2, y2 = max(fits or flat, key=lambda sg: abs(sg[2] - sg[0]))
                     span = abs(x2 - x1)
-                    x = min(x1, x2) + (snap((span - need) / 2) if span > need else 0)
+                    x = min(x1, x2) + (2.54 + snap((span - need) / 2) if span > need else 0)
                     put_label(net, x, y1, (1, 0))
                 else:
                     x1, y1, x2, y2 = max(comp, key=lambda sg: abs(sg[3] - sg[1]))
@@ -723,19 +802,37 @@ class Project:
                               [Sym("color"), 0, 0, 0, 0], [Sym("uuid"), nid("junction")]])
         for pr in sh.ncs:
             items.append([Sym("no_connect"), [Sym("at"), pr.x, pr.y], [Sym("uuid"), nid("nc")]])
+        flag_at, table_rects, table_texts = {}, [], []
+        if sh.class_box and sh.netclasses:
+            bx, by, rows, col_w, pitch, title = sh.class_box
+            ncols = (len(sh.netclasses) + rows - 1) // rows
+            shown = min(rows, len(sh.netclasses))
+            table_rects = [(r3(bx), r3(by), r3(bx + ncols * col_w), r3(by + 5.08 + shown * pitch + 2.54))]
+            table_texts = [(title, r3(bx + 1.27), r3(by + 3.81), 1.8, True)]
+            for i, (net, cls) in enumerate(sh.netclasses):
+                cx = bx + (i // rows) * col_w + col_w * 0.5
+                cy = r3(by + 5.08 + (i % rows) * pitch + pitch * 0.5)
+                a, b = (r3(snap(cx - 7.62)), cy), (r3(snap(cx + 2.54)), cy)
+                items.append([Sym("wire"), [Sym("pts"), [Sym("xy"), a[0], a[1]], [Sym("xy"), b[0], b[1]]],
+                              [Sym("stroke"), [Sym("width"), 0], [Sym("type"), Sym("default")]],
+                              [Sym("uuid"), nid("wire")]])
+                put_label(net, a[0], a[1], (-1, 0))
+                flag_at[net] = b
         for net, cls in sh.netclasses:
-            at = next(((x, y) for n, x, y in label_pts if n == net), None)
+            at = flag_at.get(net) or next(((x, y) for n, x, y in label_pts if n == net), None)
             if at is None:
                 raise ValueError(f"{sh.name}: net class {cls} for {net}, which has no label on this sheet")
+            ang, tx, ty = (270, r3(at[0] + 3.81), r3(at[1])) if net in flag_at else (0, r3(at[0] + 1.27), r3(at[1] - 2.54))
+            self._tb.append((text_box(tx, ty, cls, FONT, 0, "left", False), ("class", net), cls))
             items.append([Sym("netclass_flag"), Str(""), [Sym("length"), 2.54], [Sym("shape"), Sym("round")],
-                          [Sym("at"), at[0], at[1], 0], [Sym("fields_autoplaced"), True],
+                          [Sym("at"), at[0], at[1], ang], [Sym("fields_autoplaced"), True],
                           self._effects(FONT, "left bottom"), [Sym("uuid"), nid("netclass")],
-                          [Sym("property"), Str("Net Class"), Str(cls), [Sym("at"), r3(at[0] + 1.27), r3(at[1] - 2.54), 0],
+                          [Sym("property"), Str("Net Class"), Str(cls), [Sym("at"), tx, ty, 0],
                            [Sym("show_name"), False], [Sym("do_not_autoplace"), False], self._effects(FONT, "left")]])
-        for (s, x, y, size, bold) in sh.texts:
+        for (s, x, y, size, bold) in sh.texts + table_texts:
             items.append([Sym("text"), Str(s), [Sym("exclude_from_sim"), False], [Sym("at"), x, y, 0],
                           self._effects(size, "left bottom", bold=bold), [Sym("uuid"), nid("text")]])
-        for (x0, y0, x1, y1) in sh.rects:
+        for (x0, y0, x1, y1) in sh.rects + table_rects:
             items.append([Sym("rectangle"), [Sym("start"), x0, y0], [Sym("end"), x1, y1],
                           [Sym("stroke"), [Sym("width"), 0], [Sym("type"), Sym("dash")]],
                           [Sym("fill"), [Sym("type"), Sym("none")]], [Sym("uuid"), nid("rect")]])
@@ -744,6 +841,12 @@ class Project:
         for p in allparts:
             lib_symbols.setdefault(p.lib_id, p.sym.embedded())
         syms = [self._symbol_inst(sh, p) for p in allparts]
+        for (s, x, y, size, bold) in sh.texts + table_texts:
+            lines = s.split("\n")
+            w = max(len(ln) for ln in lines) * size * TEXT_W
+            self._tb.append(((x, y - len(lines) * size * 1.65, x + w, y), ("text", x, y), lines[0]))
+        self._text_lint(sh, bboxes)
+        self._tb = None
         comments = [self.title] + self.comments
         tree = [Sym("kicad_sch"), [Sym("version"), VERSION], [Sym("generator"), Str("eeschema")],
                 [Sym("generator_version"), Str(GENERATOR_VERSION)], [Sym("uuid"), uid("file", sh.name)],

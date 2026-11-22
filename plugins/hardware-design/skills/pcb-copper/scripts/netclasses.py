@@ -240,11 +240,36 @@ def _blocks(text, head):
     return out
 
 
+def _on_wire(pt, w):
+    (x1, y1), (x2, y2) = w
+    return (min(x1, x2) - 0.01 <= pt[0] <= max(x1, x2) + 0.01 and min(y1, y2) - 0.01 <= pt[1] <= max(y1, y2) + 0.01
+            and abs((x2 - x1) * (pt[1] - y1) - (y2 - y1) * (pt[0] - x1)) < 0.01)
+
+
+def _follow(start, labels, wires):
+    """The label (or power symbol) a point reaches along the sheet's wires, or None."""
+    seen, todo = {start}, [start]
+    while todo:
+        pt = todo.pop()
+        if pt in labels:
+            return labels[pt]
+        for w in wires:
+            if _on_wire(pt, w):
+                for end in w:
+                    if end not in seen:
+                        seen.add(end)
+                        todo.append(end)
+        for lp in labels:
+            if any(_on_wire(lp, w) and _on_wire(pt, w) for w in wires):
+                return labels[lp]
+    return None
+
+
 def directive_assignments(root_sch):
     """{net name: class} from the net-class directive labels of a hierarchical KiCad 10 schematic, without KiCad.
 
-    A directive resolves to the label it sits on (schgen puts it on a label point; a hand-drawn one on a label is
-    found too). Net names follow KiCad: a global label's name as it is, a local or hierarchical one prefixed with its
+    A directive resolves to the label or power symbol it reaches: at its own point, or along the wires from it
+    (a class table row: a label wired to its flag). Net names follow KiCad: a global label's name as it is, a local or hierarchical one prefixed with its
     sheet path (/2 Power/VM). Returns (assignments, unresolved directives as (file, x, y, class))."""
     assign, unresolved = {}, []
 
@@ -261,13 +286,25 @@ def directive_assignments(root_sch):
                     name = m.group(2).replace("/", "{slash}")
                     labels[(round(float(m.group(3)), 2), round(float(m.group(4)), 2))] = \
                         name if kind == "global_label" else prefix + name
+        for blk in _blocks(text, "symbol"):
+            lib = re.search(r'\(lib_id "power:[^"]*"\)', blk)
+            val = re.search(r'\(property "Value" "((?:[^"\\]|\\.)*)"', blk)
+            at = re.search(r'\(at\s+([-\d.]+)\s+([-\d.]+)', blk)
+            if lib and val and at:
+                labels[(round(float(at.group(1)), 2), round(float(at.group(2)), 2))] = val.group(1)
+        wires = []
+        for blk in _blocks(text, "wire"):
+            xy = re.findall(r"\(xy\s+([-\d.]+)\s+([-\d.]+)\)", blk)
+            if len(xy) == 2:
+                wires.append(tuple((round(float(a), 2), round(float(b), 2)) for a, b in xy))
         for blk in _blocks(text, "netclass_flag"):
             m = _FLAG.match(blk)
             if not m:
                 continue
             at = (round(float(m.group(1)), 2), round(float(m.group(2)), 2))
-            if at in labels:
-                assign[labels[at]] = m.group(3)
+            net = _follow(at, labels, wires)
+            if net:
+                assign[net] = m.group(3)
             else:
                 unresolved.append((os.path.basename(path), at[0], at[1], m.group(3)))
         for blk in _blocks(text, "sheet"):

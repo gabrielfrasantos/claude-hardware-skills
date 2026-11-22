@@ -1,87 +1,55 @@
-#!/usr/bin/env python3
-"""Build and keep the example board in step with the schematic, headless, with KiCad 10's pcbnew Python module.
+#!/usr/bin/python3
+"""Build and update the stepper-ble board from KiCad's netlist, headless (KiCad 10's pcbnew Python module).
 
-    python3 scripts/make_board.py create     a new board from KiCad's netlist: outline, the anchors placed and
-                                             locked, every other part parked to the right for place.py optimize
-    python3 scripts/make_board.py update     after a schematic change: nets, values and fields from the netlist;
-                                             new parts are parked, removed ones deleted, nothing placed moves
-    python3 scripts/make_board.py anchors    (re)place and lock every anchor below on an existing board
-    python3 scripts/make_board.py place      anchors, then every other part next to the pad it serves: on the side
-                                             of its partner (a part on the same schematic sheet, an IC first,
-                                             over the net with the fewest pads), pointing radially, shared pad
-                                             toward the pin; it slides along the side or moves out a ring until
-                                             it clears everything by 0.35 mm
-    python3 scripts/make_board.py zones      ground planes on In1/In2, pours for the PWR_3A / GND_3A nets around
-                                             their pads, the antenna keep-outs; then kicad-cli refills them
+    /usr/bin/python3 scripts/make_board.py build     create or update hardware/stepper-ble/stepper-ble.kicad_pcb
+    /usr/bin/python3 scripts/make_board.py place     place the parts (anchors locked, support parts at their pins)
 
-This stands in for KiCad's *Tools > Update PCB from Schematic*, which kicad-cli 10 does not offer. It is example
-tooling, not plugin code: the plugin reads and writes KiCad files as text (docs/design.md D22) and never imports
-pcbnew. The anchors below are the owner's decisions (pcb-placement §1), recorded in docs/decisions.md.
+Why it exists: kicad-cli 10 has no *Update PCB from Schematic* (README "Status and limits"), and the plugin's tools
+are text-based (docs/design.md D22), so this example carries the one pcbnew step itself (D-024).
+
+build   exports the netlist with kicad-cli, then for every component: adds its footprint (KiCad's libraries, or the
+        project library stepper-ble.pretty) or keeps the placed one, sets value, fields, schematic path, DNP and BOM
+        flags, and the net, pin function and pin type of every pad; removes footprints no longer in the schematic.
+        It writes the outline (80 x 60 mm), the M3 holes' positions, the JLC04161H-7628 stack-up, the ground
+        planes, the required pours and the antenna keep-outs. Parts new to the board are parked below the outline.
+place   puts the anchors (connectors, holes, fiducials, antenna, MCU, driver, FETs, buck, USB) at fixed positions
+        and locks them, then places every support part at the pin it serves (pcb-placement §1), see PLACEMENT.
+The .kicad_pro is kept byte for byte: pcbnew rewrites it on save, the net classes live there (netclasses.py).
 """
-import json
+import math
+import os
 import pathlib
 import re
 import subprocess
 import sys
+import tempfile
 
 import pcbnew
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 HW = ROOT / "hardware" / "stepper-ble"
-SCH, PCB, PRO = HW / "stepper-ble.kicad_sch", HW / "stepper-ble.kicad_pcb", HW / "stepper-ble.kicad_pro"
-FP_DIRS = {"stepper-ble": HW / "stepper-ble.pretty"}
-SYSTEM_FP = pathlib.Path("/usr/share/kicad/footprints")
+PCB = HW / "stepper-ble.kicad_pcb"
+PRO = HW / "stepper-ble.kicad_pro"
+SCH = HW / "stepper-ble.kicad_sch"
+FP_DIR = pathlib.Path(os.environ.get("KICAD10_FOOTPRINT_DIR", "/usr/share/kicad/footprints"))
+PROJECT_LIB = "stepper-ble"
 
 X0, Y0, W, H = 100.0, 100.0, 80.0, 60.0
-ANCHORS = {
-    "J201": (112.0, 106.5, 0, "F"), "F201": (124.5, 104.0, 0, "F"), "D201": (124.5, 109.0, 0, "F"),
-    "Q201": (117.0, 116.5, 0, "F"), "D202": (111.5, 116.5, 0, "F"), "R201": (111.5, 119.5, 0, "F"),
-    "C201": (118.5, 123.5, 0, "F"), "C202": (127.5, 123.5, 90, "F"),
-    "C306": (124.5, 129.5, 0, "F"), "C307": (112.5, 129.5, 0, "F"),
-    "Q301": (127.5, 134.0, 0, "F"), "Q302": (127.5, 140.5, 0, "F"),
-    "Q303": (121.5, 134.0, 0, "F"), "Q304": (121.5, 140.5, 0, "F"),
-    "Q305": (115.5, 134.0, 0, "F"), "Q306": (115.5, 140.5, 0, "F"),
-    "Q307": (109.5, 134.0, 0, "F"), "Q308": (109.5, 140.5, 0, "F"),
-    "R301": (124.5, 145.8, 0, "F"), "R302": (112.5, 145.8, 0, "F"),
-    "RT301": (118.5, 137.25, 90, "F"),
-    "J301": (127.0, 154.0, 180, "F"),
-    "U301": (137.0, 136.0, 180, "F"),
-    "U201": (142.0, 112.0, 0, "F"), "L201": (149.5, 112.0, 0, "F"),
-    "D203": (147.0, 119.0, 0, "F"), "D204": (147.0, 123.0, 0, "F"),
-    "U202": (153.5, 121.0, 0, "F"),
-    "U401": (164.0, 128.0, 180, "F"),
-    "AE501": (171.0, 106.5, 0, "F"),
-    "J601": (163.0, 155.2, 0, "F"), "U601": (163.0, 146.0, 0, "F"),
-    "J602": (151.0, 147.0, 0, "F"), "SW601": (175.0, 146.0, 0, "F"),
-    "D601": (150.0, 153.0, 0, "F"), "D602": (150.0, 157.0, 0, "F"),
-    "H601": (104.0, 104.0, 0, "F"), "H602": (104.0, 156.0, 0, "F"),
-    "H603": (176.0, 156.0, 0, "F"), "H604": (176.0, 114.0, 0, "F"),
-    "FID601": (104.0, 128.0, 0, "F"), "FID602": (150.0, 104.0, 0, "F"), "FID603": (176.0, 140.0, 0, "F"),
-}
-PARTNER = {"R309": "U401", "C309": "U401", "R202": "U401", "R203": "U401", "C203": "U401"}
-ANTENNA_KEEPOUT = (157.0, 100.0, 168.6, 110.0)
-ANTENNA_NO_PARTS = (155.0, 107.5, 170.0, 111.0)
-POUR_CLASSES = re.compile(r"^(PWR|GND)_(\d+(?:[.p]\d+)?)A")
-PARK_X = X0 + W + 10.0
-
-
-def mm(v):
-    return pcbnew.FromMM(v)
+mm = pcbnew.FromMM
 
 
 def sexpr(text):
-    """Parse an S-expression into nested lists of strings."""
-    tokens = re.findall(r'"(?:[^"\\]|\\.)*"|\(|\)|[^\s()]+', text)
+    tokens = re.findall(r'\(|\)|"(?:[^"\\]|\\.)*"|[^\s()]+', text)
     stack, cur = [], []
-    for tok in tokens:
-        if tok == "(":
+    for t in tokens:
+        if t == "(":
             stack.append(cur)
             cur = []
-        elif tok == ")":
+        elif t == ")":
             done, cur = cur, stack.pop()
             cur.append(done)
         else:
-            cur.append(tok[1:-1].replace('\\"', '"') if tok.startswith('"') else tok)
+            cur.append(t[1:-1].replace('\\"', '"') if t.startswith('"') else t)
     return cur[0]
 
 
@@ -89,358 +57,436 @@ def kids(node, key):
     return [c for c in node if isinstance(c, list) and c and c[0] == key]
 
 
-def val(node, key, default=""):
+def kid(node, key):
     k = kids(node, key)
-    return k[0][1] if k and len(k[0]) > 1 else default
+    return k[0] if k else None
 
 
-def netlist():
-    """Components and nets from `kicad-cli sch export netlist` (KiCad's S-expression netlist)."""
-    out = HW / "stepper-ble.net"
-    subprocess.run(["kicad-cli", "sch", "export", "netlist", str(SCH), "-o", str(out)], check=True,
-                   capture_output=True)
-    tree = sexpr(out.read_text(encoding="utf-8"))
-    out.unlink()
+def val(node, key, default=""):
+    k = kid(node, key)
+    return k[1] if k and len(k) > 1 else default
+
+
+def read_netlist():
+    with tempfile.TemporaryDirectory() as tmp:
+        out = pathlib.Path(tmp) / "board.net"
+        subprocess.run(["kicad-cli", "sch", "export", "netlist", "--format", "kicadsexpr", "-o", str(out), str(SCH)],
+                       check=True, capture_output=True)
+        tree = sexpr(out.read_text(encoding="utf-8"))
     comps = {}
-    for comp in kids(kids(tree, "components")[0], "comp"):
-        fields = {val(f, "name"): (f[2] if len(f) > 2 and isinstance(f[2], str) else "")
-                  for f in kids(kids(comp, "fields")[0], "field")} if kids(comp, "fields") else {}
-        props = {val(p, "name"): val(p, "value") for p in kids(comp, "property")}
-        sheet = kids(comp, "sheetpath")
-        comps[val(comp, "ref")] = dict(
-            value=val(comp, "value"), footprint=val(comp, "footprint"), fields=fields,
-            path=(val(sheet[0], "tstamps") if sheet else "/") + val(comp, "tstamps"),
-            dnp="dnp" in props, in_bom="exclude_from_bom" not in props)
-    nets = {}
-    for net in kids(kids(tree, "nets")[0], "net"):
-        for node in kids(net, "node"):
-            nets[(val(node, "ref"), val(node, "pin"))] = val(net, "name")
+    for c in kids(kid(tree, "components"), "comp"):
+        props = {val(p, "name"): val(p, "value") for p in kids(c, "property")}
+        fields = {f[1][1]: (f[2] if len(f) > 2 else "") for f in kids(kid(c, "fields") or [], "field")}
+        sp = kid(c, "sheetpath")
+        comps[val(c, "ref")] = dict(
+            value=val(c, "value"), footprint=val(c, "footprint"), fields=fields, props=props,
+            path=val(sp, "tstamps") + val(c, "tstamps"), sheetname=val(sp, "names"),
+            sheetfile=props.get("Sheetfile", ""), dnp="dnp" in props, in_bom="exclude_from_bom" not in props)
+    nets = []
+    for n in kids(kid(tree, "nets"), "net"):
+        nodes = [(val(d, "ref"), val(d, "pin"), val(d, "pinfunction"), val(d, "pintype")) for d in kids(n, "node")]
+        nets.append((val(n, "name"), nodes))
     return comps, nets
 
 
-def load_fp(fpid):
+def load_footprint(fpid):
     lib, name = fpid.split(":", 1)
-    d = FP_DIRS.get(lib, SYSTEM_FP / f"{lib}.pretty")
-    fp = pcbnew.FootprintLoad(str(d), name)
+    folder = HW / f"{PROJECT_LIB}.pretty" if lib == PROJECT_LIB else FP_DIR / f"{lib}.pretty"
+    fp = pcbnew.FootprintLoad(str(folder), name)
     if fp is None:
-        sys.exit(f"footprint {fpid} not found in {d}")
+        sys.exit(f"footprint {fpid} not found in {folder}")
     fp.SetFPID(pcbnew.LIB_ID(lib, name))
     return fp
 
 
-def net_of(board, name, cache):
-    if name not in cache:
+def fpid_text(fp):
+    lib_id = fp.GetFPID()
+    return f"{lib_id.GetLibNickname()}:{lib_id.GetLibItemName()}"
+
+
+def set_field(fp, name, value):
+    existed = fp.HasField(name)
+    fp.SetField(name, value)
+    if not existed:
+        f = fp.GetField(name)
+        f.SetLayer(pcbnew.F_Fab)
+        f.SetVisible(False)
+
+
+def stackup(board):
+    ds = board.GetDesignSettings()
+    ds.SetCopperLayerCount(4)
+    board.SetCopperLayerCount(4)
+    ds.SetBoardThickness(mm(1.6))
+
+
+STACKUP = [
+    ("F.SilkS", "Top Silk Screen", None), ("F.Paste", "Top Solder Paste", None),
+    ("F.Mask", "Top Solder Mask", 0.01), ("F.Cu", "copper", 0.035),
+    ("dielectric 1", "prepreg", 0.2104), ("In1.Cu", "copper", 0.0152),
+    ("dielectric 2", "core", 1.065), ("In2.Cu", "copper", 0.0152),
+    ("dielectric 3", "prepreg", 0.2104), ("B.Cu", "copper", 0.035),
+    ("B.Mask", "Bottom Solder Mask", 0.01), ("B.Paste", "Bottom Solder Paste", None),
+    ("B.SilkS", "Bottom Silk Screen", None),
+]
+
+
+def write_stackup(path):
+    """JLC04161H-7628 (JLCPCB 4-layer, 1.6 mm): 35 um outer and 15.2 um inner copper, 0.2104 mm 7628 prepreg,
+    1.065 mm core (pcb-design-rules [JLC-STACK]); layer roles SIG/GND/GND/SIG (D-010). pcbnew's SWIG module does not
+    expose the stack-up list, so the block is written into the saved file."""
+    rows = []
+    for name, kind, t in STACKUP:
+        extra = f" (thickness {t})" if t is not None else ""
+        if kind in ("prepreg", "core"):
+            extra += ' (material "FR4") (epsilon_r 4.4) (loss_tangent 0.02)'
+        rows.append(f'\t\t\t(layer "{name}" (type "{kind}"){extra})')
+    block = "\t\t(stackup\n" + "\n".join(rows) + '\n\t\t\t(copper_finish "HAL lead-free")\n' \
+        "\t\t\t(dielectric_constraints no)\n\t\t)\n"
+    text = path.read_text(encoding="utf-8")
+    text = re.sub(r"\t\t\(stackup\n.*?\n\t\t\)\n", "", text, flags=re.S)
+    text = text.replace("\t(setup\n", "\t(setup\n" + block, 1)
+    path.write_text(text, encoding="utf-8")
+
+
+def outline(board):
+    for d in [d for d in board.GetDrawings() if d.GetLayer() == pcbnew.Edge_Cuts]:
+        board.Delete(d)
+    r = pcbnew.PCB_SHAPE(board, pcbnew.SHAPE_T_RECT)
+    r.SetStart(pcbnew.VECTOR2I(mm(X0), mm(Y0)))
+    r.SetEnd(pcbnew.VECTOR2I(mm(X0 + W), mm(Y0 + H)))
+    r.SetLayer(pcbnew.Edge_Cuts)
+    r.SetWidth(mm(0.1))
+    board.Add(r)
+
+
+def polygon(zone, pts):
+    sp = pcbnew.SHAPE_POLY_SET()
+    sp.NewOutline()
+    for x, y in pts:
+        sp.Append(mm(x), mm(y))
+    sp.thisown = False
+    zone.SetOutline(sp)
+
+
+def rect(x0, y0, x1, y1):
+    return [(x0, y0), (x1, y0), (x1, y1), (x0, y1)]
+
+
+ANT_KEEPOUT = rect(151.4, 100.0, 169.0, 106.8)
+
+
+def zones(board, netmap):
+    """Ground planes on both inner layers (D-010), the pours pcb-copper requires (PWR_3A nets), the antenna's
+    all-layer copper keep-out and the footprint keep-outs beside it (rf-layout §4, pcb-placement §1)."""
+    for z in list(board.Zones()):
+        board.Delete(z)
+    inset = 0.5
+    full = rect(X0 + inset, Y0 + inset, X0 + W - inset, Y0 + H - inset)
+
+    def pour(name, layer, pts, net, prio=0, thermal=True):
+        z = pcbnew.ZONE(board)
+        z.SetZoneName(name)
+        z.SetLayer(layer)
+        z.SetNet(netmap[net] if net in netmap else next(v for k, v in netmap.items() if k.rsplit("/", 1)[-1] == net))
+        z.SetAssignedPriority(prio)
+        z.SetMinThickness(mm(0.2))
+        z.SetLocalClearance(mm(0.2))
+        z.SetThermalReliefGap(mm(0.3))
+        z.SetThermalReliefSpokeWidth(mm(0.5))
+        z.SetPadConnection(pcbnew.ZONE_CONNECTION_THERMAL if thermal else pcbnew.ZONE_CONNECTION_FULL)
+        z.SetIslandRemovalMode(pcbnew.ISLAND_REMOVAL_MODE_ALWAYS)
+        polygon(z, pts)
+        board.Add(z)
+        return z
+
+    pour("GND_In1", pcbnew.In1_Cu, full, "GND", thermal=False)
+    pour("GND_In2", pcbnew.In2_Cu, full, "GND", thermal=False)
+    for name, net, pts in POURS:
+        pour(name, pcbnew.F_Cu, pts, net, prio=1, thermal=False)
+
+    def keepout(name, pts, footprints, layers=("F.Cu", "In1.Cu", "In2.Cu", "B.Cu")):
+        z = pcbnew.ZONE(board)
+        z.SetZoneName(name)
+        z.SetIsRuleArea(True)
+        ls = pcbnew.LSET()
+        for layer in layers:
+            ls.AddLayer(board.GetLayerID(layer))
+        z.SetLayerSet(ls)
+        z.SetDoNotAllowTracks(True)
+        z.SetDoNotAllowVias(True)
+        z.SetDoNotAllowZoneFills(True)
+        z.SetDoNotAllowPads(False)
+        z.SetDoNotAllowFootprints(footprints)
+        polygon(z, pts)
+        board.Add(z)
+
+    keepout("ANT_copper", ANT_KEEPOUT, False)
+    for i, pts in enumerate(ANT_FOOTPRINT_KEEPOUTS):
+        keepout(f"ANT_parts_{i}", pts, True, layers=("F.Cu", "B.Cu"))
+
+
+POURS = [  # PWR_3A nets: pcb-copper requires a pour (D21); polygons follow the placement
+    ("VIN_RAW", "VIN_RAW", rect(103.1, 139.0, 115.0, 142.9)),
+    ("VIN_N", "VIN_N", rect(103.1, 144.2, 116.8, 148.6)),
+    ("VM", "VM", [(112.5, 128.2), (143.5, 128.2), (143.5, 135.2), (124.6, 135.2), (124.6, 142.7), (117.3, 142.7),
+                  (117.3, 135.2), (112.5, 135.2)]),
+]
+ANT_FOOTPRINT_KEEPOUTS = [rect(149.0, 100.5, 152.2, 106.8), rect(168.2, 100.5, 170.5, 106.8)]
+
+
+def keep_project_file(fn):
+    def wrapped(*a, **k):
+        saved = PRO.read_bytes() if PRO.exists() else None
+        try:
+            return fn(*a, **k)
+        finally:
+            if saved is not None:
+                PRO.write_bytes(saved)
+    return wrapped
+
+
+@keep_project_file
+def build():
+    comps, nets = read_netlist()
+    board = pcbnew.LoadBoard(str(PCB)) if PCB.exists() else pcbnew.NewBoard(str(PCB))
+    stackup(board)
+    outline(board)
+    netmap = {"": board.FindNet(0)}
+    for name, _ in nets:
         n = board.FindNet(name)
         if n is None:
             n = pcbnew.NETINFO_ITEM(board, name)
             board.Add(n)
-        cache[name] = n
-    return cache[name]
-
-
-def sync(board, comps, nets, fp, ref):
-    c = comps[ref]
-    fp.SetReference(ref)
-    fp.SetValue(c["value"])
-    fp.SetPath(pcbnew.KIID_PATH(c["path"]))
-    for k, v in c["fields"].items():
-        if k not in ("Footprint", "Datasheet", "Description"):
-            fp.SetField(k, v)
-    fp.SetDNP(c["dnp"])
-    attrs = fp.GetAttributes()
-    attrs = attrs & ~pcbnew.FP_EXCLUDE_FROM_BOM if c["in_bom"] else attrs | pcbnew.FP_EXCLUDE_FROM_BOM
-    fp.SetAttributes(attrs)
-    cache = {}
-    for pad in fp.Pads():
-        name = nets.get((ref, pad.GetNumber()))
-        if name:
-            pad.SetNet(net_of(board, name, cache))
-        else:
-            pad.SetNetCode(0)
-
-
-def place(fp, x, y, rot, side, board):
-    if side == "B":
-        fp.Flip(fp.GetPosition(), pcbnew.FLIP_DIRECTION_TOP_BOTTOM)
-    fp.SetOrientationDegrees(rot)
-    fp.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
-
-
-def park(fp, i):
-    fp.SetPosition(pcbnew.VECTOR2I(mm(PARK_X + (i % 8) * 8.0), mm(Y0 + (i // 8) * 8.0)))
-
-
-def outline(board):
-    pts = [(X0, Y0), (X0 + W, Y0), (X0 + W, Y0 + H), (X0, Y0 + H)]
-    for a, b in zip(pts, pts[1:] + pts[:1]):
-        s = pcbnew.PCB_SHAPE(board)
-        s.SetShape(pcbnew.SHAPE_T_SEGMENT)
-        s.SetLayer(pcbnew.Edge_Cuts)
-        s.SetWidth(mm(0.1))
-        s.SetStart(pcbnew.VECTOR2I(mm(a[0]), mm(a[1])))
-        s.SetEnd(pcbnew.VECTOR2I(mm(b[0]), mm(b[1])))
-        board.Add(s)
-
-
-def cmd_create():
-    if PCB.exists():
-        sys.exit(f"{PCB} exists: use update, or delete it first")
-    comps, nets = netlist()
-    board = pcbnew.NewBoard(str(PCB))
-    board.SetCopperLayerCount(4)
-    outline(board)
-    parked = 0
-    for ref in sorted(comps, key=lambda r: (re.sub(r"\d+$", "", r), int(re.search(r"\d+$", r).group()))):
-        fp = load_fp(comps[ref]["footprint"])
-        board.Add(fp)
-        sync(board, comps, nets, fp, ref)
-        if ref in ANCHORS:
-            place(fp, *ANCHORS[ref], board)
-            fp.SetLocked(True)
-        else:
-            park(fp, parked)
-            parked += 1
-    board.Save(str(PCB))
-    print(f"created {PCB.name}: {len(comps)} parts, {len(ANCHORS)} anchors locked, {parked} parked")
-
-
-def cmd_update():
-    comps, nets = netlist()
-    board = pcbnew.LoadBoard(str(PCB))
-    have = {fp.GetReference(): fp for fp in board.GetFootprints()}
-    added, removed = [], []
-    for ref, fp in have.items():
+        netmap[name] = n
+    placed = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for ref, fp in list(placed.items()):
         if ref not in comps:
-            board.Remove(fp)
-            removed.append(ref)
-    parked = 0
-    for ref in comps:
-        fp = have.get(ref)
-        if fp is None or str(fp.GetFPID().GetUniStringLibId()) != comps[ref]["footprint"]:
-            new = load_fp(comps[ref]["footprint"])
-            if fp is not None:
-                new.SetPosition(fp.GetPosition())
-                new.SetOrientation(fp.GetOrientation())
-                new.SetLocked(fp.IsLocked())
-                board.Remove(fp)
-            else:
-                park(new, parked)
-                parked += 1
-                added.append(ref)
-            board.Add(new)
-            fp = new
-        sync(board, comps, nets, fp, ref)
-    board.Save(str(PCB))
-    print(f"updated {PCB.name}: {len(comps)} parts; added {added or 'none'}; removed {removed or 'none'}")
+            del placed[ref]
+            board.Delete(fp)
+    park = 0
+    for ref in sorted(comps, key=lambda r: (re.sub(r"\d", "", r), int(re.sub(r"\D", "", r) or 0))):
+        c = comps[ref]
+        fp = placed.get(ref)
+        if fp is not None and fpid_text(fp) != c["footprint"]:
+            pos, rot, locked = fp.GetPosition(), fp.GetOrientationDegrees(), fp.IsLocked()
+            board.Delete(fp)
+            fp = load_footprint(c["footprint"])
+            board.Add(fp)
+            fp.SetPosition(pos)
+            fp.SetOrientationDegrees(rot)
+            fp.SetLocked(locked)
+        elif fp is None:
+            fp = load_footprint(c["footprint"])
+            board.Add(fp)
+            fp.SetPosition(pcbnew.VECTOR2I(mm(X0 + 4 + (park % 25) * 3.2), mm(Y0 + H + 8 + (park // 25) * 4)))
+            park += 1
+        fp.SetReference(ref)
+        fp.SetValue(c["value"])
+        for k, v in c["fields"].items():
+            if k not in ("Footprint", "Reference", "Value"):
+                set_field(fp, k, v)
+        fp.SetPath(pcbnew.KIID_PATH(c["path"]))
+        fp.SetSheetname(c["sheetname"])
+        fp.SetSheetfile(c["sheetfile"])
+        fp.SetDNP(c["dnp"])
+        fp.SetExcludedFromBOM(not c["in_bom"] or c["dnp"])
+        fp.SetExcludedFromPosFiles(not c["in_bom"] or c["dnp"])
+        for pad in fp.Pads():
+            pad.SetNet(netmap[""])
+            pad.SetPinFunction("")
+            pad.SetPinType("")
+        placed[ref] = fp
+    for name, nodes in nets:
+        for ref, pin, function, ptype in nodes:
+            for pad in placed[ref].Pads():
+                if pad.GetNumber() == pin:
+                    pad.SetNet(netmap[name])
+                    pad.SetPinFunction(function)
+                    pad.SetPinType(ptype)
+    zones(board, netmap)
+    pcbnew.SaveBoard(str(PCB), board)
+    write_stackup(PCB)
+    print(f"{PCB.relative_to(ROOT)}: {len(placed)} footprints, {len(nets)} nets, {park} new parked")
 
 
-def cmd_anchors():
-    board = pcbnew.LoadBoard(str(PCB))
-    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
-    for ref, at in ANCHORS.items():
-        fps[ref].SetLocked(False)
-        place(fps[ref], *at, board)
-        fps[ref].SetLocked(True)
-    board.Save(str(PCB))
-    print(f"anchors: {len(ANCHORS)} placed and locked")
+def main():
+    cmd = sys.argv[1] if len(sys.argv) > 1 else "build"
+    if cmd == "build":
+        build()
+    elif cmd == "place":
+        place()
+    else:
+        sys.exit(__doc__)
 
 
-def _box(fp):
-    b = fp.GetBoundingBox(False)
+ANCHORS = {
+    "H701": (104.0, 104.0, 0), "H702": (176.0, 104.0, 0), "H703": (104.0, 156.0, 0), "H704": (176.0, 156.0, 0),
+    "J301": (105.71, 111.5, 270), "J101": (105.71, 140.97, 270),
+    "Q301": (116.0, 129.0, 270), "Q302": (116.0, 118.0, 270), "Q303": (124.0, 129.0, 270), "Q304": (124.0, 118.0, 270),
+    "Q305": (132.0, 129.0, 270), "Q306": (132.0, 118.0, 270), "Q307": (140.0, 129.0, 270), "Q308": (140.0, 118.0, 270),
+    "R301": (120.0, 107.5, 90), "R302": (136.0, 107.5, 90), "C301": (126.0, 139.5, 0),
+    "U301": (148.0, 120.0, 180), "U401": (166.0, 125.0, 180), "AE501": (164.75, 106.0, 0),
+    "U201": (133.0, 151.0, 0), "L201": (141.5, 151.0, 0), "J601": (160.5, 155.6, 0),
+    "FID701": (111.0, 103.5, 0), "FID702": (176.5, 121.0, 0), "FID703": (146.0, 156.4, 0),
+}
+FIXED = {
+    "F101": (116.2, 140.97, 0), "D101": (116.2, 136.9, 180), "Q101": (116.0, 146.6, 180),
+    "C303": (120.0, 129.2, 90), "C304": (128.0, 129.2, 90), "C305": (136.0, 129.2, 90),
+    "TH301": (128.0, 123.5, 90),
+    "FL501": (165.0, 119.6, 0), "R501": (164.75, 110.6, 90), "C501": (166.1, 113.2, 0), "C502": (166.1, 108.4, 0),
+    "U601": (160.5, 146.6, 0), "U202": (151.0, 144.6, 0), "D201": (149.2, 151.2, 90), "D202": (155.4, 146.2, 90),
+    "C202": (125.6, 150.37, 180), "C201": (124.6, 147.0, 180),
+    "C205": (145.6, 149.4, 90), "C206": (145.6, 152.8, 90),
+    "D701": (177.2, 138.0, 0), "D702": (177.2, 142.0, 0), "SW701": (172.6, 148.4, 0),
+}
+ATTACH = [  # (part, IC, IC pad): the part goes radially out from that pad, nearest legal spot first
+    ("C408", "U401", "23"), ("C407", "U401", "23"), ("C401", "U401", "20"), ("C402", "U401", "35"),
+    ("C409", "U401", "34"), ("C403", "U401", "48"), ("C406", "U401", "40"), ("C405", "U401", "1"),
+    ("C404", "U401", "48"), ("C412", "U401", "31"), ("L401", "U401", "33"), ("L402", "L401", "SMPS_MID"),
+    ("Y402", "U401", "2"), ("C413", "Y402", "1"), ("C414", "Y402", "2"), ("Y401", "U401", "25"),
+    ("C411", "U401", "8"), ("C410", "U401", "8"), ("R401", "C410", "VDDA"), ("C415", "U401", "7"),
+    ("R402", "U401", "4"),
+    ("C302", "U301", "4"), ("C306", "U301", "3"), ("C307", "U301", "1"), ("C308", "U301", "6"),
+    ("C309", "U301", "7"), ("R303", "U301", "8"), ("R304", "U301", "9"), ("R305", "U301", "17"),
+    ("R306", "U301", "18"), ("R307", "U301", "19"), ("C310", "U301", "20"),
+    ("NT301", "R301", "1"), ("NT302", "R301", "2"), ("NT303", "R302", "1"), ("NT304", "R302", "2"),
+    ("R101", "Q101", "4"), ("D102", "Q101", "4"),
+    ("R201", "U201", "3"), ("R202", "U201", "3"),
+    ("C203", "U201", "6"), ("C204", "U201", "7"), ("R204", "U201", "5"), ("R203", "U201", "5"),
+    ("C207", "U202", "1"), ("C208", "U202", "5"), ("C209", "D201", "1"),
+    ("C602", "U601", "5"), ("C601", "J601", "A4"), ("R601", "J601", "A5"), ("R602", "J601", "B5"),
+    ("R102", "U401", "fn:VM_SENSE:28"), ("R103", "R102", "VM_SENSE"), ("R403", "U401", "fn:NTC_SENSE:29"),
+    ("J701", "U401", "fn:SWCLK:41"), ("R703", "SW701", "1"), ("R701", "D701", "2"), ("R702", "D702", "2"),
+]
+GAP = 1.4           # courtyard to courtyard, mm: leaves the ~0.9 mm lane for a 1 mm reference (pcb-placement §1)
+
+
+def at(fp, x, y, rot):
+    fp.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
+    fp.SetOrientationDegrees(rot)
+
+
+def court(fp):
+    c = fp.GetCourtyard(pcbnew.F_CrtYd)
+    b = c.BBox() if c.OutlineCount() else fp.GetBoundingBox(False)
     return (pcbnew.ToMM(b.GetLeft()), pcbnew.ToMM(b.GetTop()), pcbnew.ToMM(b.GetRight()), pcbnew.ToMM(b.GetBottom()))
 
 
-def _hits(a, b, gap):
+def hit(a, b, gap):
     return a[0] < b[2] + gap and b[0] < a[2] + gap and a[1] < b[3] + gap and b[1] < a[3] + gap
 
 
-def _sheet(ref):
-    m = re.search(r"(\d)\d\d$", ref)
-    return m.group(1) if m else ""
+def xy(item):
+    p = item.GetPosition()
+    return pcbnew.ToMM(p.x), pcbnew.ToMM(p.y)
 
 
-def cmd_place():
-    """Anchors where ANCHORS says; every other part attached next to the pad it serves (see the module doc)."""
+PINMAP = ROOT / "pin-data" / "pinmap.txt"
+
+
+def pinmap():
+    out = {}
+    if PINMAP.exists():
+        for line in PINMAP.read_text(encoding="utf-8").splitlines():
+            if line.strip() and not line.startswith("#"):
+                cols = line.split()
+                out[cols[0]] = cols[2]
+    return out
+
+
+def target(fps, ic, key):
+    """The pad of `ic` named by number, by function ("fn:NAME:default pad", from the pin map once it exists), or
+    the first pad on the net `key`."""
+    if key.startswith("fn:"):
+        _, name, default = key.split(":")
+        key = pinmap().get(name, default)
+    pads = [p for p in fps[ic].Pads() if p.GetNumber() == key] or \
+        [p for p in fps[ic].Pads() if p.GetNetname().rsplit("/", 1)[-1] == key]
+    return pads[0]
+
+
+def edge_mm(fp):
+    """MLCCs and crystals keep 3 mm from the edge (depaneling stress, pcb-placement §4.1 [JLC-SMT]); others 0.5 mm."""
+    return 2.8 if fp.GetReference()[0] in "CY" and not fp.GetReference().startswith("C301") else 0.5
+
+
+def attach(fp, pad, ic_fp, taken, blocked, gap=None):
+    """Put `fp` at `pad` of `ic_fp`: its pad on the same net nearest the pin, axis radial (else tangential),
+    the first spot that clears every placed courtyard by GAP, inside the board and outside the keep-outs."""
+    px, py = xy(pad)
+    cx, cy = xy(ic_fp)
+    dx, dy = px - cx, py - cy
+    if abs(dx) < 1e-6 and abs(dy) < 1e-6:
+        dx = 1.0
+    n = (math.copysign(1, dx), 0.0) if abs(dx) >= abs(dy) else (0.0, math.copysign(1, dy))
+    t = (-n[1], n[0])
+    net = pad.GetNetname()
+    own = [p for p in fp.Pads() if p.GetNetname() == net] or list(fp.Pads())
+    if gap is None:
+        for g in (GAP, 1.0, 0.6):
+            try:
+                return attach(fp, pad, ic_fp, taken, blocked, g)
+            except LookupError:
+                continue
+        raise SystemExit(f"{fp.GetReference()}: no spot near {ic_fp.GetReference()} pad {pad.GetNumber()}")
+    for dist in [0.8 + 0.25 * i for i in range(40)]:
+        for lat in [0.0] + [s * 0.25 * k for k in range(1, 24) for s in (1, -1)]:
+            for rot in (0, 90, 180, 270):
+                at(fp, 0, 0, rot)
+                inner = own[0]
+                ix, iy = xy(inner)
+                others = [p for p in fp.Pads() if p is not inner and p.GetNumber()]
+                if others:
+                    ox, oy = xy(others[0])
+                    v = (ox - ix, oy - iy)
+                    radial = v[0] * n[0] + v[1] * n[1]
+                    if radial < -1e-6 or (abs(radial) < 1e-6 and lat == 0.0 and dist < 1.6):
+                        continue
+                tx = px + n[0] * dist + t[0] * lat - ix
+                ty = py + n[1] * dist + t[1] * lat - iy
+                at(fp, round(tx * 20) / 20, round(ty * 20) / 20, rot)
+                c = court(fp)
+                e = edge_mm(fp)
+                if c[0] < X0 + e or c[1] < Y0 + e or c[2] > X0 + W - e or c[3] > Y0 + H - e:
+                    continue
+                if any(hit(c, k, 0.0) for k in blocked) or any(hit(c, k, gap) for k in taken):
+                    continue
+                return c
+    raise LookupError(fp.GetReference())
+
+
+@keep_project_file
+def place():
     board = pcbnew.LoadBoard(str(PCB))
     fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
-    for fp in fps.values():
-        fp.SetLocked(False)
-    for ref, at in ANCHORS.items():
-        place(fps[ref], *at, board)
+    taken = []
+    for ref, (x, y, rot) in ANCHORS.items():
+        fps[ref].SetLocked(False)
+        at(fps[ref], x, y, rot)
         fps[ref].SetLocked(True)
-    placed = set(ANCHORS)
-    boxes = {r: _box(fps[r]) for r in placed}
-    inner = (X0 + 0.6, Y0 + 0.6, X0 + W - 0.6, Y0 + H - 0.6)
-
-    def nets(fp):
-        return {p.GetNetname() for p in fp.Pads() if p.GetNetname() and p.GetNetname() != "GND"}
-
-    count = {}
-    for f in fps.values():
-        for p in f.Pads():
-            count[p.GetNetname()] = count.get(p.GetNetname(), 0) + 1
-
-    def target_for(ref):
-        mine = nets(fps[ref])
-        best = None
-        for other in ([PARTNER[ref]] if ref in PARTNER else placed):
-            shared = mine & nets(fps[other])
-            if not shared:
-                continue
-            net = min(shared, key=lambda n: (count[n], n))
-            rank = (_sheet(other) != _sheet(ref), not other.startswith("U"), count[net], other)
-            if best is None or rank < best[0]:
-                best = (rank, other, net)
-        return best
-
-    def fits(fp):
-        b = _box(fp)
-        if not (inner[0] <= b[0] and b[2] <= inner[2] and inner[1] <= b[1] and b[3] <= inner[3]):
-            return None
-        if _hits(b, ANTENNA_NO_PARTS, 0) or any(_hits(b, o, 0.35 if r in ANCHORS else 0.9) for r, o in boxes.items()):
-            return None
-        return b
-
-    used = {}
-    pending = [r for r in fps if r not in placed and 2 <= fps[r].GetPadCount() <= 4]
-    while pending:
-        scored = [(target_for(r), r) for r in pending]
-        scored = [(tr, r) for tr, r in scored if tr]
-        if not scored:
-            break
-        scored.sort(key=lambda s: (s[0][0], s[1]))
-        (rank, owner, net), ref = scored[0]
-        pending.remove(ref)
-        ofp, fp = fps[owner], fps[ref]
-        opad = min((p for p in ofp.Pads() if p.GetNetname() == net),
-                   key=lambda p: (used.get((owner, p.GetNumber()), 0), (p.GetPosition() - ofp.GetPosition()).EuclideanNorm()))
-        used[(owner, opad.GetNumber())] = used.get((owner, opad.GetNumber()), 0) + 1
-        px, py = pcbnew.ToMM(opad.GetPosition().x), pcbnew.ToMM(opad.GetPosition().y)
-        ob = boxes[owner]
-        cx, cy = (ob[0] + ob[2]) / 2, (ob[1] + ob[3]) / 2
-        horiz = abs(px - cx) / max(ob[2] - ob[0], 0.1) >= abs(py - cy) / max(ob[3] - ob[1], 0.1)
-        sign = 1 if ((px - cx) if horiz else (py - cy)) >= 0 else -1
-        done = None
-        for ring in range(8):
-            for lat in (0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, 3.2, -3.2, 4.0, -4.0, 4.8, -4.8, 5.6, -5.6, 6.4, -6.4):
-                for rot in ((0, 180) if horiz else (90, 270)):
-                    fp.SetOrientationDegrees(rot)
-                    fp.SetPosition(pcbnew.VECTOR2I(0, 0))
-                    b = _box(fp)
-                    half = (b[2] - b[0]) / 2 if horiz else (b[3] - b[1]) / 2
-                    edge = (ob[2] if sign > 0 else ob[0]) if horiz else (ob[3] if sign > 0 else ob[1])
-                    out = edge + sign * ((0.75 if owner.startswith("U") else 0.45) + half + ring * 1.8)
-                    x, y = (out, py + lat) if horiz else (px + lat, out)
-                    fp.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
-                    got = fits(fp)
-                    if got is None:
-                        continue
-                    mine = [q for q in fp.Pads() if q.GetNetname() == net]
-                    rest = [q for q in fp.Pads() if q.GetNetname() != net]
-                    dist = lambda q: (pcbnew.ToMM(q.GetPosition().x) - px) ** 2 + (pcbnew.ToMM(q.GetPosition().y) - py) ** 2
-                    if not rest or min(map(dist, mine)) <= min(map(dist, rest)):
-                        done = got
-                        break
-                if done:
-                    break
-            if done:
-                break
-        if done is None:
-            print(f"  {ref}: no spot next to {owner} ({net}); left parked")
-            continue
-        placed.add(ref)
-        boxes[ref] = done
-    board.Save(str(PCB))
-    print(f"placed: {len(ANCHORS)} anchors locked, {len(placed) - len(ANCHORS)} parts attached to their pads")
-
-
-ZONE_NS = __import__("uuid").UUID("0d6c5b8e-7b1f-4e43-9a55-1c8f3a8a2f10")
-COPPER = '"F.Cu" "B.Cu" "In1.Cu" "In2.Cu"'
-
-
-def zone_text(name, rect, net=None, layer=None, priority=0, keepout=None):
-    """A KiCad 10 zone as text (the format pcbnew writes). keepout: None, or True to also forbid footprints."""
-    import uuid
-    x0, y0, x1, y1 = (round(v, 3) for v in rect)
-    head = (f'\t\t(net "{net}")\n\t\t(layer "{layer}")\n' if net else f'\t\t(layers {COPPER})\n')
-    body = (f'\t\t(uuid "{uuid.uuid5(ZONE_NS, name)}")\n' + (f'\t\t(name "{name}")\n' if keepout is not None else "")
-            + '\t\t(hatch edge 0.5)\n' + (f'\t\t(priority {priority})\n' if priority else ""))
-    if keepout is not None:
-        rules = ('\t\t(connect_pads\n\t\t\t(clearance 0)\n\t\t)\n\t\t(min_thickness 0.25)\n\t\t(keepout\n'
-                 '\t\t\t(tracks not_allowed)\n\t\t\t(vias not_allowed)\n\t\t\t(pads allowed)\n'
-                 '\t\t\t(copperpour not_allowed)\n'
-                 f'\t\t\t(footprints {"not_allowed" if keepout else "allowed"})\n\t\t)\n'
-                 '\t\t(fill\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n')
-    else:
-        rules = ('\t\t(connect_pads\n\t\t\t(clearance 0.25)\n\t\t)\n\t\t(min_thickness 0.2)\n'
-                 '\t\t(fill yes\n\t\t\t(thermal_gap 0.5)\n\t\t\t(thermal_bridge_width 0.5)\n\t\t)\n')
-    pts = f"(xy {x0} {y0}) (xy {x1} {y0}) (xy {x1} {y1}) (xy {x0} {y1})"
-    return f"\t(zone\n{head}{body}{rules}\t\t(polygon\n\t\t\t(pts\n\t\t\t\t{pts}\n\t\t\t)\n\t\t)\n\t)\n"
-
-
-def strip_zones(path):
-    """Remove every top-level (zone ...) block from the board file, as text."""
-    text = path.read_text(encoding="utf-8")
-    out, i = [], 0
-    while (j := text.find("\n\t(zone\n", i - 1 if i else 0)) >= 0:
-        out.append(text[i:j + 1])
-        depth, k, in_str = 0, j + 1, False
-        while True:
-            ch = text[k]
-            if in_str:
-                in_str = not (ch == '"' and text[k - 1] != "\\")
-            elif ch == '"':
-                in_str = True
-            elif ch == "(":
-                depth += 1
-            elif ch == ")":
-                depth -= 1
-                if depth == 0:
-                    break
-            k += 1
-        i = k + 2
-    out.append(text[i:])
-    path.write_text("".join(out), encoding="utf-8")
-
-
-def cmd_zones():
-    """Zones as text (pcbnew's zone calls crash from Python in KiCad 10.0.8), filled by kicad-cli."""
-    board = pcbnew.LoadBoard(str(PCB))
-    classes = json.loads(PRO.read_text())["net_settings"].get("netclass_assignments", {})
-    inner = (X0 + 0.3, Y0 + 0.3, X0 + W - 0.3, Y0 + H - 0.3)
-    zones = [zone_text("GND In1", inner, net="GND", layer="In1.Cu"),
-             zone_text("GND In2", inner, net="GND", layer="In2.Cu"),
-             zone_text("antenna keep-out", ANTENNA_KEEPOUT, keepout=False),
-             zone_text("antenna: no parts", ANTENNA_NO_PARTS, keepout=True)]
-    poured = []
-    for net, cls in sorted(classes.items()):
-        cls = cls[0] if isinstance(cls, list) else cls
-        m = POUR_CLASSES.match(cls)
-        if not m or float(m.group(2).replace("p", ".")) < 3.0:
-            continue
-        pads = [p for fp in board.GetFootprints() for p in fp.Pads() if p.GetNetname() == net]
-        if not pads:
-            continue
-        bb = pads[0].GetBoundingBox()
-        for p in pads[1:]:
-            bb.Merge(p.GetBoundingBox())
-        r = (max(pcbnew.ToMM(bb.GetLeft()) - 1.0, inner[0]), max(pcbnew.ToMM(bb.GetTop()) - 1.0, inner[1]),
-             min(pcbnew.ToMM(bb.GetRight()) + 1.0, inner[2]), min(pcbnew.ToMM(bb.GetBottom()) + 1.0, inner[3]))
-        zones.append(zone_text(f"pour {net}", r, net=net, layer="B.Cu", priority=1))
-        poured.append(net)
-    strip_zones(PCB)
-    text = PCB.read_text(encoding="utf-8").rstrip()
-    assert text.endswith(")")
-    PCB.write_text(text[:-1] + "".join(zones) + ")\n", encoding="utf-8")
-    r = subprocess.run(["kicad-cli", "pcb", "drc", "--refill-zones", "--save-board", str(PCB), "-o", str(HW / "drc.rpt")],
-                       capture_output=True, text=True)
-    (HW / "drc.rpt").unlink(missing_ok=True)
-    print(f"zones: GND on In1/In2, antenna keep-outs, B.Cu pours for {', '.join(poured) or 'none'}; "
-          f"filled by kicad-cli (exit {r.returncode})")
+        taken.append(court(fps[ref]))
+    for ref, (x, y, rot) in FIXED.items():
+        fps[ref].SetLocked(False)
+        at(fps[ref], x, y, rot)
+        taken.append(court(fps[ref]))
+    blocked = [(min(p[0] for p in k), min(p[1] for p in k), max(p[0] for p in k), max(p[1] for p in k))
+               for k in [ANT_KEEPOUT] + ANT_FOOTPRINT_KEEPOUTS]
+    for ref, ic, key in ATTACH:
+        fps[ref].SetLocked(False)
+        taken.append(attach(fps[ref], target(fps, ic, key), fps[ic], taken, blocked))
+    done = set(ANCHORS) | set(FIXED) | {r for r, _, _ in ATTACH}
+    left = sorted(set(fps) - done)
+    if left:
+        print("not placed:", " ".join(left))
+    if "--dump" in sys.argv:
+        for ref in sys.argv[sys.argv.index("--dump") + 1].split(","):
+            for pad in fps[ref].Pads():
+                print(ref, pad.GetNumber(), pad.GetNetname(), *[round(v, 2) for v in xy(pad)])
+    pcbnew.SaveBoard(str(PCB), board)
+    write_stackup(PCB)
+    print(f"placed {len(done)} footprints")
 
 
 if __name__ == "__main__":
-    cmds = {"create": cmd_create, "update": cmd_update, "anchors": cmd_anchors, "place": cmd_place, "zones": cmd_zones}
-    if len(sys.argv) != 2 or sys.argv[1] not in cmds:
-        sys.exit(__doc__)
-    cmds[sys.argv[1]]()
+    main()

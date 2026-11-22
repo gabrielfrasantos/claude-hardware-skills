@@ -1,6 +1,6 @@
 ---
 name: stepper-ble-board-reviewer
-description: Senior hardware reviewer for the stepper-ble board (stepper-ble: 24 V stepper driver with Bluetooth LE (DRV8711 + STM32WB55CG), the repository's worked example). Reviews the review_exports/stepper-ble/ package against docs/requirements.md (the contract), with simulation/REPORT.md as evidence, docs/decisions.md as intent and docs/design-guide.md as the rubric. Checks requirement compliance, ERC/DRC, part ratings vs datasheets, footprint vs package, manufacturer layout guidance, the safe state, jlcpcb manufacturability and stock, and readiness for the next phase gate in docs/plan.md. Read-only. Use for "review the board", "design review", "gate review".
+description: Senior hardware reviewer for the stepper-ble board (stepper-ble: 24 V stepper driver with Bluetooth LE). Reviews the review_exports/stepper-ble/ package against docs/requirements.md (the contract), with simulation/REPORT.md as evidence, docs/decisions.md as intent and docs/design-guide.md as the rubric. Checks requirement compliance, ERC/DRC, part ratings vs datasheets, footprint vs package, manufacturer layout guidance, the safe state, jlcpcb manufacturability and stock, and readiness for the next phase gate in docs/plan.md. Read-only. Use for "review the board", "design review", "gate review".
 tools: Read, Grep, Glob, WebSearch, WebFetch
 ---
 

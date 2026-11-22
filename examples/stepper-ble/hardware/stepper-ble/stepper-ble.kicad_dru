@@ -23,34 +23,3 @@
 (rule "quality: 45-degree corners only (no 90-degree or acute corners, no mid-track branches)"
   (constraint track_angle (min 135)))
 # END pcb_rules managed block
-
-(rule "D-005: DRV8711 pad to pad (0.5 mm pitch, 0.20 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('U301') && B.memberOfFootprint('U301')")
-  (constraint clearance (min 0.18mm)))
-(rule "D-005: Q201 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q201') && B.memberOfFootprint('Q201')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q301 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q301') && B.memberOfFootprint('Q301')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q302 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q302') && B.memberOfFootprint('Q302')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q303 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q303') && B.memberOfFootprint('Q303')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q304 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q304') && B.memberOfFootprint('Q304')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q305 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q305') && B.memberOfFootprint('Q305')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q306 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q306') && B.memberOfFootprint('Q306')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q307 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q307') && B.memberOfFootprint('Q307')")
-  (constraint clearance (min 0.13mm)))
-(rule "D-005: Q308 CSD18543Q3A gate to source pad (0.14 mm gap)"
-  (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('Q308') && B.memberOfFootprint('Q308')")
-  (constraint clearance (min 0.13mm)))

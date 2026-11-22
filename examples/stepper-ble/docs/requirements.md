@@ -1,11 +1,11 @@
 # Hardware requirements
 
-This is an example board with no firmware repo, so every requirement traces to a decision in `docs/decisions.md`
-or a skill section. `trace.py` checks the table.
+This board has no firmware repo (D-017): every requirement traces to a decision in `docs/decisions.md` or a skill
+section. `trace.py` checks the table.
 
 Verification methods:
 - **R**: design review against the schematic or layout;
-- **S**: simulation in `simulation/` (S0, S1, ... in `docs/plan.md`);
+- **S**: simulation in `simulation/` (S1, S2 in `docs/plan.md`; not yet built);
 - **B**: bring-up test in `docs/bringup.md`;
 - **T**: a test on the assembled board beyond bring-up.
 
@@ -13,45 +13,57 @@ Verification methods:
 
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
-| HW-PWR-001 | Input 24 V nominal, 30 V maximum; survives reversed input and 33 V transients clamped by the TVS. | D-002 | R, B |
-| HW-PWR-002 | Input current limited by a 3 A fast fuse; VM and its return are 3 A pours. | D-002 | R |
-| HW-PWR-003 | The logic (5 V, 3.3 V) runs from 24 V or from USB VBUS alone. | D-009 | R, B |
+| HW-PWR-001 | Input 24 V nominal, 30 V maximum, through a 2-pin screw terminal (J101). | D-003 | R, B (B1) |
+| HW-PWR-002 | Input current limited by a 3 A fast fuse (F101) ahead of everything else. | D-003 | R |
+| HW-PWR-003 | Survive a reversed input and transients up to the TVS clamp: Q101 blocks reverse, D101 SMAJ33A clamps VM; every part on VM rated above VC or listed as a deviation. | D-004 | R, S1, B (B1) |
+| HW-PWR-004 | 5 V logic supply from VM by a buck, starting above 7.4 V and stopping below 6.7 V. | D-005 | R, B (B2) |
+| HW-PWR-005 | Logic runs from USB VBUS alone; neither source back-feeds the other. | D-005 | R, B (B2) |
+| HW-PWR-006 | VM measured by the MCU's ADC up to 30 V without exceeding the pin's injection limit at the clamp voltage. | D-002 | R, B (B3) |
 
-## Motor
-
-| ID | Requirement | Source | Verify |
-|---|---|---|---|
-| HW-MOT-001 | Drive one bipolar stepper, up to 2.0 A peak per phase, with stall detection. | D-003 | R, T |
-| HW-MOT-002 | Firmware sets ISGAIN 10 and TORQUE at most 186 (2.0 A with 0.1 ohm sense). | D-003 | R |
-| HW-MOT-003 | The FETs' temperature is measured by an NTC between the bridges. | D-007 | R, B |
-
-## Radio
+## Motor stage
 
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
-| HW-RF-001 | Bluetooth LE at 2.4 GHz on a PCB antenna, with a tuning network fitted at bring-up. | D-004 | R, B (VNA) |
+| HW-MOT-001 | Drive one bipolar stepper through a 4-pin screw terminal (J301) with a DRV8711 and eight external N-FETs in two H-bridges. | D-002 | R |
+| HW-MOT-002 | Up to 2.0 A peak per phase, set by 0.1 ohm sense resistors and the DRV8711 registers. | D-021 | R, S2, B (B6) |
+| HW-MOT-003 | Stall detection: DRV8711 STALLn to an EXTI pin and BEMF to an ADC pin. | D-002 | R, B (B6) |
+| HW-MOT-004 | Control by SPI (mode 0, SCS active high) plus STEP/DIR from a timer output. | D-014 | R, B (B6) |
+| HW-MOT-005 | FET temperature measured by an NTC between the FETs, read by the ADC. | D-002 | R, B (B7) |
+| HW-MOT-006 | The bridges are off through MCU reset and brown-out; FAULTn reaches an EXTI pin. | D-018 | R, B (B6) |
+| HW-MOT-007 | Kelvin sense taps from the shunts to the DRV8711. | D-012 | R |
+| HW-MOT-008 | Phase-pin negative swing within the DRV8711 rating, or a clamp fitted. | D-013 | B (B6, scope) |
 
-## Interfaces
+## MCU, radio, interfaces
 
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
-| HW-IF-001 | USB 2.0 full-speed device on USB-C (sink, 5.1 kohm Rd), ESD on D+/D- at the connector. | interface-layout §2 | R, T |
-| HW-IF-002 | SWD and reset on a Tag-Connect TC2030 footprint (no connector fitted). | D-004 | R |
+| HW-MCU-001 | STM32WB55CGU6 in SMPS mode with a 32 MHz HSE and a 32.768 kHz LSE, inside the BLE ppm budget after trimming. | D-006 | R, B (B4, counter) |
+| HW-RF-001 | Bluetooth LE through the MLPF-WB55-01E3 to a TI SWRA117D PCB inverted-F antenna at the top edge, with a 0 ohm + two DNP shunt tuning network fitted at bring-up. | D-007 | R, B (B5, VNA, RSSI) |
+| HW-USB-001 | USB 2.0 full-speed device on USB-C, sink (5.1 kohm Rd), ESD on D+/D- at the connector. | D-008 | R, B (B2) |
+| HW-DBG-001 | SWD, SWO and reset on a Tag-Connect TC2030 footprint (no connector fitted). | D-009 | R, B (B3) |
+| HW-UI-001 | A green status LED and a red fault LED, driven by GPIO. | D-023 | R, B (B8) |
+| HW-UI-002 | A user button on an EXTI pin. | D-023 | R, B (B8) |
 
 ## Mechanics
 
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
-| HW-MEC-001 | 80 x 60 mm, four M3 holes at the corners; power and motor terminals on the left half, USB-C on the bottom edge, antenna at the top edge. | D-007 | R |
+| HW-MEC-001 | Board 80 x 60 mm, four M3 holes at the corners. | D-015 | R |
+| HW-MEC-002 | Power and motor terminals on the left half, USB-C on the bottom edge, antenna at the top edge with its keep-out. | D-015 | R |
 
 ## Manufacturing
 
 | ID | Requirement | Source | Verify |
 |---|---|---|---|
-| HW-MFG-001 | JLCPCB, 4 layers SIG/GND/GND/SIG, 1.6 mm, IPC Class 2, JLCPCB assembly. | D-001 | R |
-| HW-MFG-002 | The example stops at placement: the board is not routed. | D-011 | R |
+| HW-MFG-001 | JLCPCB fabrication and assembly, 4 layers SIG/GND/GND/SIG, 1.6 mm, IPC-A-600/A-610 Class 2. | D-010 | R |
+| HW-MFG-002 | Test access by component pads and the TC2030 land (no test points); EMC: BLE radio needs FCC 15.247 / EN 300 328 pre-compliance before any product use. | D-026 | R, T |
+| HW-MFG-003 | Scope: schematic and a placed board with every gate passing; not routed. | D-027 | R |
+| HW-MFG-004 | Every part from the owner's list with LCSC number and MPN; parts KiCad lacks in a project library generated by script. | D-016 | R |
 
 ## Open items
 
-- Test points: the review lists 15 supply nets without one (`review.py` F22). Add them when the board is routed.
-- EMC and safety standards: not set for an example board.
+- OI-1: confirm RF_50 and DIFF_90 widths in JLCPCB's impedance calculator; order impedance control (D-025).
+- OI-2: simulation S1 (input transients against the 50 V capacitors) and S2 (current regulation) are not built (D-004).
+- OI-3: L201 (SWPA4030S220MT) saturation current not read from its datasheet; must be >= 1.6 A (LMR36510 ILIMIT max).
+- OI-4: C205/C206 (6.3 V X5R at 5 V) effective capacitance under DC bias.
+- OI-5: DRV8711 V5 capacitor: the pin table says 0.1 uF, §10.1 says 1 uF; 0.1 uF fitted.

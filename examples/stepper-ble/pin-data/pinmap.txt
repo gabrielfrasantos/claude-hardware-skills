@@ -1,21 +1,25 @@
 # pin map: function, pin, pad, signal, side, distance to its parts (mm)
 # U401 on stepper-ble.kicad_pcb; pin data: mcu.kicad_sch (MCU_ST_STM32WB:STM32WB55CGUx); needs: pin-needs.txt
-# total distance 386.2 mm (current assignment 386.2 mm)
+# total distance 298.4 mm (current assignment 298.4 mm)
 # instances: drv: n=1
-BEMF_ADC    PA9     18  ADC1_IN16        N    30.3
-BUTTON      PB8      5  EXTI8            E    15.8
-DRV_DIR     PA10    36  GPIO             W    21.2
-DRV_FAULTn  PB1     29  EXTI1            W    21.0
-DRV_RESET   PB4     44  GPIO             S    25.4
-DRV_SCLK    PA5     14  SPI1_SCK         N    28.0
-DRV_SCS     PE4     30  GPIO             W    21.4
-DRV_SDATI   PA7     16  SPI1_MOSI        N    26.9
-DRV_SDATO   PA6     15  SPI1_MISO        N    26.0
-DRV_SLEEPn  PB5     45  GPIO             S    25.6
-DRV_STALLn  PB0     28  EXTI0            W    19.9
-DRV_STEP    PA15    42  TIM2_CH1         S    24.3
-LED_FAULT   PB7     47  GPIO             S    28.6
-LED_STATUS  PB6     46  GPIO             S    24.8
-NTC_ADC     PA8     17  ADC1_IN15        N    15.3
-PG_5V       PB2     19  GPIO             N    27.2
-VM_SENSE    PA3     12  ADC1_IN8         E     4.4
+BTN_USER    PB5     45  EXTI5            S    16.3
+DRV_BEMF    PA8     17  ADC1_IN15        N    23.8
+DRV_DIR     PA15    42  GPIO             S    17.4
+DRV_FAULTN  PA4     13  EXTI4            N    19.2
+DRV_MISO    PA6     15  SPI1_MISO        N    15.0
+DRV_MOSI    PA7     16  SPI1_MOSI        N    16.9
+DRV_RESET   PB0     28  GPIO             W    12.0
+DRV_SCLK    PA5     14  SPI1_SCK         N    17.7
+DRV_SCS     PB1     29  GPIO             W    13.8
+DRV_SLEEPN  PE4     30  GPIO             W    12.0
+DRV_STALLN  PB2     19  EXTI2            N    17.9
+DRV_STEP    PA10    36  TIM1_CH3         W    14.0
+LED_FAULT   PB6     46  GPIO             S    12.2
+LED_STATUS  PB7     47  GPIO             S     9.4
+NTC_SENSE   PA9     18  ADC1_IN16        N    18.6
+SWCLK       PA14    41  PA14             S     6.9
+SWDIO       PA13    39  PA13             S     6.9
+SWO         PB3     43  PB3              S     6.8
+USB_DM      PA11    37  PA11             S    17.3
+USB_DP      PA12    38  PA12             S    19.2
+VM_SENSE    PA3     12  ADC1_IN8         E     5.1

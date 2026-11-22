@@ -2,7 +2,7 @@
 
 Read by any agent that follows the AGENTS.md convention; `CLAUDE.md` imports this file for Claude Code.
 
-stepper-ble: 24 V stepper driver with Bluetooth LE (DRV8711 + STM32WB55CG), the repository's worked example. Firmware: none (example board). The plan, with its phases and gates, is in `docs/plan.md`: read it before changing
+stepper-ble: 24 V stepper driver with Bluetooth LE. Firmware: none. The plan, with its phases and gates, is in `docs/plan.md`: read it before changing
 anything.
 
 ## 1. Skills
@@ -31,8 +31,8 @@ The `hardware-design` skills (github.com/gabrielfrasantos/hardware-design-skills
 
 ## 2. Sources of truth
 
-- **Firmware is the requirement source.** Every row of `docs/requirements.md` traces to a firmware `REQ-*` ID, a
-  firmware file and line, or a decision in `docs/decisions.md`. `python3 $HW/hardware-project/scripts/trace.py` checks it.
+- **Requirement sources.** This board has no firmware repo (D-017): every row of `docs/requirements.md` traces to a
+  decision in `docs/decisions.md` or a skill section. `python3 $HW/hardware-project/scripts/trace.py` checks it.
 - **Decisions** live in `docs/decisions.md` (D-xxx). A changed decision gets a new row; the old one is marked
   "Superseded by D-yyy", never edited away.
 - **Schematic:** `scripts/schgen/` (`python3 $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py`).
@@ -59,10 +59,10 @@ python3 $HW/schematic-capture/scripts/library_check.py hardware/stepper-ble/step
 python3 $HW/pcb-copper/scripts/netclasses.py apply hardware/stepper-ble/stepper-ble.kicad_pro
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py apply hardware/stepper-ble/stepper-ble.kicad_pro --fab jlcpcb --netclasses
 python3 $HW/pcb-placement/scripts/place.py gate hardware/stepper-ble/stepper-ble.kicad_pcb
-python3 $HW/pcb-placement/scripts/pins.py assign hardware/stepper-ble/stepper-ble.kicad_pcb --mcu <U?> --needs pin-data/pin-needs.txt --out pin-data/pinmap.txt
+python3 $HW/pcb-placement/scripts/pins.py assign hardware/stepper-ble/stepper-ble.kicad_pcb --mcu U401 --needs pin-data/pin-needs.txt --out pin-data/pinmap.txt
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/stepper-ble/stepper-ble.kicad_pcb --report pcb-quality.md
 python3 $HW/pcb-copper/scripts/netclasses.py check hardware/stepper-ble/stepper-ble.kicad_pcb
-python3 $HW/hardware-project/scripts/trace.py --firmware ../<firmware checkout>
+python3 $HW/hardware-project/scripts/trace.py
 python3 $HW/hardware-project/scripts/export_bom.py && python3 $HW/hardware-project/scripts/jlc_stock.py bom/bom.csv --boards 5
 python3 $HW/hardware-project/scripts/export_review.py      # review_exports/stepper-ble/ for the reviewer agent
 python3 $HW/hardware-project/scripts/export_jlcpcb.py      # manufacturing/stepper-ble/

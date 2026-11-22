@@ -1,6 +1,6 @@
 # Plan: stepper-ble
 
-stepper-ble: 24 V stepper driver with Bluetooth LE (DRV8711 + STM32WB55CG), the repository's worked example. Firmware: none (example board). Each phase ends at a gate the **owner** signs off; the next phase does not start
+stepper-ble: 24 V stepper driver with Bluetooth LE. Firmware: none. Each phase ends at a gate the **owner** signs off; the next phase does not start
 before. Record each sign-off (date, conditions) in this file.
 
 ## Phase 0: requirements, sizing, mechanics
@@ -28,7 +28,8 @@ Gate:
 ## Phase 2: simulation (`circuit-simulation`)
 | ID | Circuit / question | Pass criterion |
 |---|---|---|
-| S1 | ASSUMPTION: power entry (hot plug, inrush, reverse polarity) | ASSUMPTION |
+| S1 | Power entry: hot plug, inrush into C301, reverse polarity, surge into the SMAJ33A | VM below 50 V at the clamp energy the requirement sets, or a part change (D-004) |
+| S2 | Current regulation and phase-node swing at 24 V, 2 A | IFS 2.0 A +-10 %; AOUTx >= -0.6 V (D-013) |
 
 Gate: every check passes as drawn, or the proposed changes are moved into the schematic; REPORT.md lists the
 firmware constraints.
@@ -58,6 +59,12 @@ keep-outs); test points placed and reachable; the reviewer agent's verdict; owne
 
 ## Status (2026-11-22)
 
-Phases 0, 1 and the placement half of Phase 3 are done for the example; Phase 2 (simulation) is not started and the
-board is not routed (D-011). Every gate in the README passes on KiCad 10.0.8; the open review findings are listed
-there. This board has no owner sign-offs: it is an example, and its decisions were made to demonstrate the flow.
+| Phase | State | Evidence |
+|---|---|---|
+| 0 | done, not signed off | requirements traced (`trace.py` PASS, 26 requirements, 27 decisions); parts from the owner's list |
+| 1 | done, not signed off | 7 sheets, `schgen.py build` lint 0, `check` PASS (77 nets), ERC 0, `library_check.py` PASS; stock and `jlc_stock.py` not run |
+| 2 | not started | S1, S2 open (OI-2) |
+| 3 | placement done, not routed | `place.py gate --enforce` PASS, `pins.py check` PASS, `pcb_rules.py check --allow-unrouted` PASS, `netclasses.py check` PASS, `silk.py check` PASS; pin map frozen (D-014) |
+| 4 | not started | |
+
+No gate has the owner's sign-off. The Phase 1 checklists are folded into the schematic notes and `docs/decisions.md`.

@@ -32,7 +32,9 @@ python3 scripts/review.py <project dir | .kicad_pro> --voltage VBAT=12.6 --volta
    voltage. Rating, orientation and divider checks skip them. Use the **maximum** voltage (a charged battery, a
    mis-set charger), not the nominal one.
 2. **Run `review.py`.** In a `hardware-project` repo, `export_review.py` runs it into the review package.
-   `--fail-on MAJOR` turns it into a CI gate; by default it only reports.
+   `--fail-on MAJOR` turns it into a CI gate; by default it only reports. A release gate also needs
+   `--require all` (or the steps it depends on, e.g. `--require erc,library,rules`): it fails when a required
+   check did not complete. Without it, a check that broke reports zero findings and the gate passes.
 3. **Ask for the review**: "review the schematic and PCB" uses the `board-reviewer` agent. The agent reads
    `findings.json` first, then the netlist, then the datasheets, then the images.
 4. **Close each finding**: fix it, or record an accepted deviation as a decision (`hardware-project`). A false
@@ -55,6 +57,12 @@ items are then not findings (passed on to `pcb_rules.py check`). Shorts and clea
 | placement | `pcb-placement/place.py gate` and `dfa.py`: validity, assembly spacing, edge keep-outs, fiducials, orientation | board |
 | blocks | `reference-block/refblock.py check` for every `*.block.json` | board, blocks |
 | stock | `hardware-project/jlc_stock.py` | `--bom`, network |
+
+Each step ends with a status in `findings.json` (`checks`) and at the top of `review.md`, kept apart from finding
+severity: `completed`, `partial` (DRC without `kicad-cli`, or assembly, could not run), `failed` (the tool broke,
+e.g. `kicad-cli` exited non-zero), `missing_inputs` (no schematic, no board, no `.kicad_pro`) or `skipped`
+(`--skip`, or stock without `--bom`). Only completed steps are listed as run. Every run works in an empty folder and
+then replaces the last run's reports, so an old clean `erc.json` can't stand in for an ERC that failed.
 
 Severity in the findings: shorts, clearance and anything below the fab minimum are BLOCKER, and so is a part with
 pads outside the board outline (its copper and holes still go into the Gerbers and the drill file). Other hard gates
@@ -116,9 +124,13 @@ python3 evals/review_defects.py score work/rd/manifest.json --report agent-revie
 - divider over range.
 
 It runs the scripted checks on the clean board and the seeded one. `score` grades any review against the planted
-defects, including the agent's markdown report.
+defects, including the agent's markdown report. A defect counts only when a finding of the expected check (in a
+report: a line in that check's terms, e.g. "decoupling" or "pull-up") names the part or net; naming the part for
+another reason earns nothing. In `run`, a finding the clean board already has earns nothing either, and findings
+that are new on the seeded board but match no defect are listed as unexpected, for triage. The result lists the
+kinds this board had a target for.
 
-Measured 2026-11-20:
+Measured 2026-11-20 (scored with the earlier rule, which credited any finding that named the part):
 
 | Board | Seeded | Found by the scripts | Clean board: findings at MINOR or above |
 |---|---|---|---|

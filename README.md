@@ -91,10 +91,13 @@ claude.ai, or point any agent that reads Agent Skills at it. The scripts are ord
 ## Quick start
 
 The flow for a new board, as commands. In an agent session, ask for each step in words ("scaffold a board repo for a
-motor controller", "review the board"), and the matching skill runs the same scripts. `$HW` is
-`plugins/hardware-design/skills` in a checkout of this repository.
+motor controller", "review the board"), and the matching skill runs the same scripts. `$HW` is the absolute path
+of `plugins/hardware-design/skills` in a checkout of this repository, so the commands still work after `cd` into the
+board repo.
 
 ```bash
+HW="$(pwd)/plugins/hardware-design/skills"   # run from the root of this repository's checkout
+
 # 1. A board repo with requirements, decisions, phase gates and a reviewer agent
 python3 $HW/hardware-project/scripts/scaffold.py ../my-board --name my-board --title "my-board: what it is" \
         --firmware owner/my-firmware --fab jlcpcb --layers 4
@@ -165,9 +168,13 @@ Known limits:
 - Fab profiles exist for JLCPCB and Seeed only. Assembly rules exist for JLCPCB only. Other fabs need a profile in
   `pcb-design-rules/profiles/`.
 - The RF rules cover 2.4 GHz only.
-- No autorouting. Placement and pin assignment are automated; routing critical nets stays with the designer.
-- `kicad-cli` has no *Update PCB from Schematic*. The example board uses a short `pcbnew` script for that step; the
-  plugin itself has no headless equivalent yet.
+- Routing critical nets stays with the designer. `pcb-routing` autoroutes only the rest, with Freerouting (Java 25),
+  and its result follows clearance and width, not the house style: expect hand tidying.
+- `kicad-cli` has no *Update PCB from Schematic*; `pcb-placement`'s `sync.py` does it headless. It adds, updates,
+  replaces and removes footprints and pad nets, matched to symbols by their link. It refuses to replace a footprint
+  on the back side, and leaves outline, zones, net classes and copper on renamed nets (`pcb-design-rules`'
+  `orphan_copper_nets`) to other tools or KiCad. The example board was first built with a short `pcbnew` script;
+  `sync.py` reproduces it byte for byte (`pcb-placement` §0).
 - Some IPC values are transcribed from secondary sources until the standards themselves are checked. Each skill
   marks which ones.
 

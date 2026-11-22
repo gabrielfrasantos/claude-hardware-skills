@@ -31,11 +31,38 @@ class Seeded(unittest.TestCase):
         self.assertEqual(res["found"], res["seeded"])
         # a markdown review that names two of the parts, one of them marked false positive
         first, second = m["defects"][0], m["defects"][1]
-        md = (f"| 1 | MAJOR | power | {first['ref']} | missing |\n"
-              f"| 2 | MINOR | x | {second['ref']} | FALSE-POSITIVE: fine |\n")
+        md = (f"| 1 | MAJOR | {first['expect']} | {first['ref']} | missing |\n"
+              f"| 2 | MINOR | {second['expect']} | {second['ref']} | FALSE-POSITIVE: fine |\n")
         r = RD.score(m, report=md)
         self.assertEqual([x["found"] for x in r["rows"][:2]], [True, False])
         self.assertEqual(r["found"], 1)
+        # naming the part is not enough: the report must say what is wrong with it
+        r = RD.score(m, report=f"| 1 | MAJOR | assembly | {first['ref']} | pin-1 mark hard to see |\n")
+        self.assertEqual(r["found"], 0)
+
+    def _manifest(self):
+        return dict(seeded="b.kicad_pcb", not_seeded=["boot_floating"],
+                    defects=[dict(id="S1", kind="decap_removed", ref="U202", pin="", net="+5V", expect="decoupling",
+                                  what="")])
+
+    def test_finding_must_have_the_expected_check(self):
+        wrong = [dict(severity="MINOR", check="orientation_mixed", anchor="U202", message="U202 rotated 90°")]
+        self.assertEqual(RD.score(self._manifest(), findings=wrong)["found"], 0)
+        right = [dict(severity="MAJOR", check="decoupling", anchor="U202", message="no capacitor on +5V near U202")]
+        self.assertEqual(RD.score(self._manifest(), findings=right)["found"], 1)
+        by_net = [dict(severity="MAJOR", check="decoupling", anchor="+5V", message="+5V has no decoupling")]
+        self.assertEqual(RD.score(self._manifest(), findings=by_net)["found"], 1)
+
+    def test_a_finding_already_on_the_clean_board_earns_nothing(self):
+        old = dict(severity="MAJOR", check="decoupling", anchor="U202", message="U202 +5V: 1 capacitor, 2 wanted")
+        new = dict(severity="MINOR", check="dividers", anchor="R9", message="R9/R10 out of range")
+        r = RD.score(self._manifest(), findings=[old, new], baseline=[old])
+        self.assertEqual(r["found"], 0)
+        self.assertEqual([x["check"] for x in r["unexpected"]], ["dividers"])   # new, and matches no defect
+        text = RD.table(r, "t", self._manifest())
+        self.assertIn("1 of 8 kinds", text)
+        self.assertIn("boot_floating", text)
+        self.assertIn("Unexpected", text)
 
 
 if __name__ == "__main__":

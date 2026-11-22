@@ -20,9 +20,11 @@ Gerbers, drill files and the CPL all use the board's drill/place file origin, so
 their coordinates line up.
 
 The BOM comes from scripts/export_bom.py (grouped by LCSC number, DNP parts and
-parts without an LCSC number left out). Its output is redirected here; the tracked
-bom/ files are not touched. Placed parts with no BOM line, and BOM parts with no
-placement, are listed as warnings.
+parts without an LCSC number left out, the latter listed by reference). Its output
+is redirected here; the tracked bom/ files are not touched. The BOM and CPL are then
+checked against the board (assembly.py): a fitted part missing from either, a BOM
+line for a part that is not fitted, or a malformed file is named and makes the
+script exit non-zero. Parts marked Assembly = hand may be absent.
 
 Usage:
     python3 scripts/export_jlcpcb.py
@@ -52,6 +54,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import assembly  # noqa: E402  (BOM/CPL against the board)
 import project  # noqa: E402  (repo root and board, hardware-project skill)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = project.root()
@@ -174,18 +177,9 @@ def run_export_bom(sch: Path, work: Path, cli: str = "kicad-cli") -> bool:
         return False
     finally:
         export_bom.ROOT, sys.argv = saved_root, saved_argv
-    print("    " + log.getvalue().split(" -> ")[0].strip())
+    for line in log.getvalue().strip().splitlines():
+        print("    " + line.split(" -> ")[0].strip())
     return True
-
-
-def _designators(path: Path, column: str) -> set[str]:
-    if not path.exists():
-        return set()
-    with path.open(newline="", encoding="utf-8-sig") as fh:
-        refs: set[str] = set()
-        for row in csv.DictReader(fh):
-            refs.update(r.strip() for r in (row.get(column) or "").split(",") if r.strip())
-    return refs
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +248,7 @@ def export_bom(work: Path, cli: str) -> bool:
     return True
 
 
-def export_cpl(cli: str) -> None:
+def export_cpl(cli: str) -> bool:
     """JLCPCB CPL (component placement list). kicad-cli emits Ref/Val/Package/
     PosX/PosY/Rot/Side; rewrite the header + Side values to JLCPCB's schema.
     The drill-file origin matches the gerbers and drill files."""
@@ -268,8 +262,11 @@ def export_cpl(cli: str) -> None:
                    "--exclude-dnp",
                    str(PCB_FILE)],
              "Placement (raw, kicad columns)")
-    if not ok or not raw.exists():
-        return
+    if not ok:
+        return False
+    if not raw.exists():
+        print(f"    [FAIL] kicad-cli exited 0 but wrote no {raw.name}")
+        return False
 
     cpl = OUT_DIR / "cpl.csv"
     with raw.open(newline="", encoding="utf-8") as fin, \
@@ -288,24 +285,20 @@ def export_cpl(cli: str) -> None:
             ])
     raw.unlink()
     print("\n>>> JLCPCB CPL\n    [OK] -> cpl.csv")
+    return True
 
 
-def check_bom_vs_cpl() -> None:
-    """Warn about placed parts JLCPCB will not assemble (no BOM line, e.g. no
-    LCSC number) and BOM parts it cannot place (no CPL line)."""
-    bom = _designators(OUT_DIR / "bom.csv", "Designator")
-    cpl = _designators(OUT_DIR / "cpl.csv", "Designator")
-    if not bom or not cpl:
-        return
-    placed_only = sorted(cpl - bom)
-    bom_only = sorted(bom - cpl)
-    print("\n>>> BOM vs CPL")
-    if placed_only:
-        print("    [warn] placed but not in the BOM (not assembled): " + " ".join(placed_only))
-    if bom_only:
-        print("    [warn] in the BOM but not placed (no CPL line): " + " ".join(bom_only))
-    if not placed_only and not bom_only:
-        print("    [OK] every BOM part is placed and every placed part is in the BOM")
+def check_bom_vs_cpl() -> list[str]:
+    """Every fitted part in the BOM and the CPL, both files well-formed (assembly.py). Returns the errors."""
+    print("\n>>> BOM and CPL against the board")
+    res = assembly.check_package(PCB_FILE, OUT_DIR / "bom.csv", OUT_DIR / "cpl.csv")
+    for n in res["notes"]:
+        print(f"    note: {n}")
+    for e in res["errors"]:
+        print(f"    [FAIL] {e}")
+    if not res["errors"]:
+        print("    [OK] every fitted part is in the BOM and the CPL")
+    return res["errors"]
 
 
 def stock_check(work: Path, boards: int) -> None:
@@ -383,19 +376,26 @@ def main() -> None:
     export_gerbers(cli)
     zip_path = zip_gerbers()
 
+    problems: list[str] = []
     if not args.no_assembly:
-        (OUT_DIR / "stock_check.json").unlink(missing_ok=True)
+        for stale in ("stock_check.json", "bom.csv", "cpl.csv"):   # a failed step must not leave the last run's file
+            (OUT_DIR / stale).unlink(missing_ok=True)
         with tempfile.TemporaryDirectory() as td:
             work = Path(td)
             bom_ok = export_bom(work, cli)
-            export_cpl(cli)
-            check_bom_vs_cpl()
+            cpl_ok = export_cpl(cli)
+            problems += [] if bom_ok else ["BOM export failed"]
+            problems += [] if cpl_ok else ["CPL export failed"]
+            if bom_ok and cpl_ok:
+                problems += check_bom_vs_cpl()
             if args.stock_check and bom_ok:
                 stock_check(work, args.boards)
 
     print("\nDone.")
     print(f"  Fabrication : upload {zip_path.name}")
     if not args.no_assembly:
+        if problems:
+            sys.exit("  Assembly    : NOT ready, do not upload:\n    " + "\n    ".join(problems))
         print("  Assembly    : upload bom.csv (BOM) and cpl.csv (CPL)")
 
 

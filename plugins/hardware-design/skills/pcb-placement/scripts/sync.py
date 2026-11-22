@@ -8,6 +8,9 @@ Libraries: the board folder's fp-lib-table, then the newest global one (~/.confi
 $KICAD_CONFIG_HOME); ${KICAD<n>_FOOTPRINT_DIR} resolves from the environment or KiCad's install folder.
 
 Reads KiCad's netlist (exported with kicad-cli from the schematic next to the board, or --netlist) and, on the board:
+  matches each footprint to its symbol by the symbol link (path: the sheet and symbol UUIDs), so a reannotation
+          renames placed parts instead of swapping circuits between placements; a footprint with no link, or a link
+          to no symbol, falls back to its reference (reported); two footprints competing for one symbol are an error;
   adds    a footprint for every symbol that has none, from the project's and the global fp-lib-table, parked in a
           grid below the board outline (or at --park);
   updates every footprint's reference, value, fields (LCSC, MPN, Datasheet, ...), schematic link (path, sheet),
@@ -18,8 +21,9 @@ Reads KiCad's netlist (exported with kicad-cli from the schematic next to the bo
 Only the footprints that change are rewritten; the rest of the file is kept byte for byte. With no board, it writes
 an empty KiCad 10 board with --layers copper layers (default 4) first. Outline, stack-up, zones and net classes are
 not its job (pcb-design-rules, pcb-copper).
-Exit 1 when a footprint can't be found or a pad number in the netlist has no pad; with --check (writes nothing),
-also when any footprint would change: the board is not in step with its schematic.
+Exit 1 when a match is ambiguous, a footprint can't be found or a pad number in the netlist has no pad. Then nothing
+is written: the board changes completely or not at all (written to a temporary file next to it, then renamed over
+it). With --check (writes nothing), also exit 1 when any footprint would change: the board is behind its schematic.
 """
 import argparse
 import math
@@ -407,34 +411,78 @@ def sort_key(ref):
     return (m.group(1), int(m.group(2) or 0), ref)
 
 
+def _path(fp):
+    p = child(fp, "path")
+    return uq(p[1]) if p and len(p) > 1 else None
+
+
+def match(fps, comps, rep):
+    """Pair board footprints with netlist symbols: ([comp ref or None per footprint], {footprint indices held}).
+
+    A footprint's symbol link (the hierarchical path of the symbol's UUID) decides first, so a reannotated schematic
+    moves references between placed parts rather than moving parts between references. Footprints with no link, or
+    a link to no symbol (an older board, a re-created symbol), fall back to their reference when nothing linked has
+    claimed it. Two footprints competing for one symbol are reported as ambiguous and left unmatched."""
+    by_path = {c["path"]: r for r, c in comps.items() if c["path"]}
+    links = {}
+    for i, fp in enumerate(fps):
+        if _path(fp) in by_path:
+            links.setdefault(_path(fp), []).append(i)
+    out, claimed, held = [None] * len(fps), set(), set()
+    linked = {j for idx in links.values() for j in idx}
+    for p, idx in links.items():
+        ref = by_path[p]
+        claimed.add(ref)
+        if len(idx) == 1:
+            out[idx[0]] = ref
+        else:
+            held.update(idx)
+            rep["ambiguous"].append(f"{ref}: footprints {', '.join(_ref(fps[i]) for i in idx)} all link to symbol {p}")
+    for i, fp in enumerate(fps):
+        ref = _ref(fp)
+        if i in linked or ref not in comps:
+            continue
+        if ref in claimed:
+            if _path(fp) is None:        # no link and the reference belongs to a linked footprint: which one is it?
+                held.add(i)
+                rep["ambiguous"].append(f"{ref}: an unlinked footprint shares the reference of the footprint linked "
+                                        f"to symbol {comps[ref]['path']}")
+            continue                     # a stale link with a reused reference: the old symbol is gone
+        out[i] = ref
+        claimed.add(ref)
+        rep["matched_by_reference"].append(ref)
+    return out, held, claimed
+
+
 def sync(text, comps, libs, fp_dir, park=None):
     """Returns (new text, report dict)."""
-    spans = top_spans(text)
-    rep = dict(added=[], updated=[], replaced=[], removed=[], kept_board_only=[], missing_footprints=[],
-               missing_pads=[], back_side_replace=[])
-    pieces, seen = [], set()
+    spans = [s for s in top_spans(text) if s[2] == "footprint"]
+    rep = dict(added=[], updated=[], replaced=[], removed=[], kept_board_only=[], matched_by_reference=[],
+               ambiguous=[], missing_footprints=[], missing_pads=[], back_side_replace=[])
+    fps = [parse(text[s:e]) for s, e, _ in spans]
+    matched, held, seen = match(fps, comps, rep)
+    pieces = []
     pos = 0
     box = outline_box(text)
     row_w = max(60.0, box[2] - box[0]) if box else 100.0
     if park is None:
         park = (box[0], box[3] + 6.0) if box else (0.0, 0.0)
-    for start, end, head in spans:
-        if head != "footprint":
-            continue
+    for i, ((start, end, _), fp, mref) in enumerate(zip(spans, fps, matched)):
         block = text[start:end]
-        fp = parse(block)
         ref = _ref(fp)
-        comp = comps.get(ref)
+        comp = comps.get(mref) if mref else None
         pieces.append(text[pos:start])
         pos = end
         if comp is None:
-            if child(fp, "path") is None:
+            if i in held:
+                pieces.append(block)
+            elif child(fp, "path") is None:
                 rep["kept_board_only"].append(ref)
                 pieces.append(block)
             else:
                 rep["removed"].append(ref)
             continue
-        seen.add(ref)
+        ref = comp["ref"]                # the symbol's reference: a reannotation renames the placed footprint
         new = fp
         if uq(fp[1]) != comp["footprint"]:
             if val(fp, "layer") == "B.Cu":
@@ -519,21 +567,39 @@ def main(argv=None):
     libs, fp_dir = lib_tables(os.path.dirname(board))
     park = tuple(float(v) for v in a.park.split(",")) if a.park else None
     out, rep = sync(text, comps, libs, fp_dir, park)
-    for k in ("added", "replaced", "updated", "removed", "kept_board_only"):
+    for k in ("added", "replaced", "updated", "removed", "kept_board_only", "matched_by_reference"):
         if rep[k]:
             print(f"{k.replace('_', ' ')} ({len(rep[k])}): {', '.join(sorted(rep[k], key=sort_key))}")
-    problems = rep["missing_footprints"] + rep["missing_pads"] + rep["back_side_replace"]
-    for k, msg in (("missing_footprints", "footprint not found"), ("missing_pads", "netlist pin with no pad"),
+    problems = rep["ambiguous"] + rep["missing_footprints"] + rep["missing_pads"] + rep["back_side_replace"]
+    for k, msg in (("ambiguous", "ambiguous match"), ("missing_footprints", "footprint not found"),
+                   ("missing_pads", "netlist pin with no pad"),
                    ("back_side_replace", "footprint changed on the back side: replace it in KiCad")):
         for item in rep[k]:
             print(f"ERROR {msg}: {item}")
-    if not (a.dry_run or a.check) and out != text:
-        with open(board, "w", encoding="utf-8") as f:
-            f.write(out)
+    write = not (a.dry_run or a.check or problems)
+    if write and out != text:
+        write_atomic(board, out)
     total = sum(len(rep[k]) for k in ("added", "replaced", "updated", "removed"))
-    print(f"{os.path.basename(board)}: {len(comps)} symbols; {total} footprints changed"
-          + (" (nothing written)" if a.dry_run or a.check else ""))
+    print(f"{os.path.basename(board)}: {len(comps)} symbols; {total} footprints "
+          + ("changed" if write else "would change (nothing written)"))
     return 1 if problems or (a.check and total) else 0
+
+
+def write_atomic(path, text):
+    """Replace the file in one step: a crash or full disk leaves either the old board or the new one."""
+    fd, tmp = tempfile.mkstemp(prefix=os.path.basename(path) + ".", suffix=".tmp", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(path):
+            shutil.copymode(path, tmp)
+        os.replace(tmp, path)
+    except BaseException:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+        raise
 
 
 if __name__ == "__main__":

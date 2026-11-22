@@ -16,11 +16,14 @@ seed   copies the board (with its .kicad_pro and .kicad_dru) to DIR and plants o
          power_pin_open    an IC power-input pin is disconnected
          divider_overrange a divider into an IC gets a top resistor 100x smaller
        It writes DIR/manifest.json: each defect's kind, part, pin, net and the check expected to find it.
-score  a defect counts as found when a BLOCKER, MAJOR or MINOR finding names its part (findings.json from
-       design-review, or any review in markdown: a table row or line that names the part and isn't marked
-       false positive). Reports recall per kind. Use it on the reviewer agent's report too.
-run    seed, then design-review's scripted checks on the clean and the seeded board: recall, plus the findings on
-       the clean board (each one a real issue or a false positive, for the owner to triage).
+score  a defect counts as found when a BLOCKER, MAJOR or MINOR finding of the expected check names its part or
+       net (findings.json from design-review; or any review in markdown: a table row or line that names the part
+       or net, says what is wrong in the check's terms, and isn't marked false positive). Naming the part for an
+       unrelated reason earns nothing. Reports the eligible kinds and the detected defects. Use it on the
+       reviewer agent's report too.
+run    seed, then design-review's scripted checks on the clean and the seeded board. A finding already on the clean
+       board earns no credit; findings new on the seeded board that match no defect are listed as unexpected, and
+       the clean board's findings are listed too (each a real issue or a false positive, for the owner to triage).
 
 Defects go into the board only (pad nets and Value fields); the schematic, if given, supplies pin names and types.
 """
@@ -240,36 +243,74 @@ def seed(board, schematic=None, voltages=None, out="review-defects"):
 
 
 # ------------------------------------------------------------------------------------------------ scoring
+# What a free-text review must say for each expected check, besides naming the part or net.
+KEYWORDS = {"decoupling": r"decoupl|bypass|decap", "pullups": r"pull-?ups?\b",
+            "orientation": r"orient|revers|polarit|backwards", "ratings": r"rating|rated|standoff|derat|overvolt",
+            "mcu_pins": r"\bboot|strap|power[- ]pin|supply pin|unconnected|floating|not connected|\bopen\b",
+            "dividers": r"divider|out of range|over-?range|full[- ]scale"}
+
+
 def _mentions(text, ref):
     return re.search(r"(?<![A-Za-z0-9_])" + re.escape(ref) + r"(?![0-9])", text) is not None
 
 
-def score(manifest, findings=None, report=None):
-    rows = []
+def _mentions_net(text, net):
+    return re.search(r"(?<![A-Za-z0-9_+])" + re.escape(net) + r"(?![A-Za-z0-9_])", text) is not None
+
+
+def _key(x):
+    return (x["check"], x["anchor"], x["message"])
+
+
+def score(manifest, findings=None, report=None, baseline=None):
+    """A defect is found by a BLOCKER/MAJOR/MINOR finding of the expected check that names its part or net (in a
+    report: a line that names the part or net and says what is wrong in the check's terms, not marked false
+    positive). With baseline (the findings on the clean board), a finding already there earns nothing; findings
+    new on the seeded board that match no defect are listed as unexpected, for triage."""
+    rows, unexpected = [], []
     if findings is not None:
-        items = [x for x in findings if x["severity"] in ("BLOCKER", "MAJOR", "MINOR")]
+        base = {_key(x) for x in baseline or []}
+        items = [x for x in findings if x["severity"] in ("BLOCKER", "MAJOR", "MINOR") and _key(x) not in base]
+        used = set()
         for dft in manifest["defects"]:
-            hit = [x for x in items if _mentions(x["anchor"] + " " + x["message"], dft["ref"])
-                   or (dft["net"] and dft["net"] in x["anchor"] + " " + x["message"] and x["check"] == dft["expect"])]
-            rows.append(dict(dft, found=bool(hit), by=[f"{x.get('id', '')} {x['check']} {x['severity']}" for x in hit][:3]))
+            hit = [i for i, x in enumerate(items) if x["check"] == dft["expect"]
+                   and (_mentions(x["anchor"] + " " + x["message"], dft["ref"])
+                        or (dft["net"] and _mentions_net(x["anchor"] + " " + x["message"], dft["net"])))]
+            used.update(hit)
+            rows.append(dict(dft, found=bool(hit),
+                             by=[f"{items[i].get('id', '')} {items[i]['check']} {items[i]['severity']}" for i in hit][:3]))
+        unexpected = [x for i, x in enumerate(items) if i not in used] if baseline is not None else []
     else:
         lines = [ln for ln in report.splitlines() if re.search(r"BLOCKER|MAJOR|MINOR", ln)
                  and not re.search(r"FALSE.POSITIVE", ln, re.I)]
         for dft in manifest["defects"]:
-            hit = [ln.strip()[:120] for ln in lines if _mentions(ln, dft["ref"])]
+            words = KEYWORDS.get(dft["expect"], "") + "|" + re.escape(dft["expect"])
+            hit = [ln.strip()[:120] for ln in lines
+                   if (_mentions(ln, dft["ref"]) or (dft["net"] and _mentions_net(ln, dft["net"])))
+                   and re.search(words, ln, re.I)]
             rows.append(dict(dft, found=bool(hit), by=hit[:2]))
     n = len(rows)
     found = sum(r["found"] for r in rows)
-    return dict(recall=(found / n) if n else None, found=found, seeded=n, rows=rows)
+    return dict(recall=(found / n) if n else None, found=found, seeded=n, rows=rows, unexpected=unexpected)
 
 
-def table(result, title):
-    lines = [f"## {title}", "", f"Recall: {result['found']}/{result['seeded']}"
-             + (f" ({100 * result['recall']:.0f} %)" if result["recall"] is not None else ""), "",
-             "| Defect | Kind | Part | Net | Found | By |", "|---|---|---|---|---|---|"]
+def table(result, title, manifest=None):
+    lines = [f"## {title}", ""]
+    if manifest is not None:
+        kinds = sorted({d["kind"] for d in manifest["defects"]}, key=KINDS.index)
+        lines += [f"Eligible on this board: {len(kinds)} of {len(KINDS)} kinds ({', '.join(kinds) or 'none'}); "
+                  f"no target for: {', '.join(manifest.get('not_seeded', [])) or 'none'}.", ""]
+    lines += [f"Detected: {result['found']}/{result['seeded']}"
+              + (f" ({100 * result['recall']:.0f} %)" if result["recall"] is not None else "")
+              + " (the expected check, naming the part or net)", "",
+              "| Defect | Kind | Part | Net | Expected check | Found | By |", "|---|---|---|---|---|---|---|"]
     for r in result["rows"]:
-        lines.append(f"| {r['id']} | {r['kind']} | {r['ref']} | {r['net']} | {'yes' if r['found'] else '**no**'} | "
-                     f"{'; '.join(r['by'])[:120]} |")
+        lines.append(f"| {r['id']} | {r['kind']} | {r['ref']} | {r['net']} | {r['expect']} | "
+                     f"{'yes' if r['found'] else '**no**'} | {'; '.join(r['by'])[:120]} |")
+    if result.get("unexpected"):
+        lines += ["", f"Unexpected findings (new on the seeded board, matching no defect; triage each): "
+                  f"{len(result['unexpected'])}", ""]
+        lines += [f"- {x['severity']} {x['check']} {x['anchor']}: {x['message'][:140]}" for x in result["unexpected"]]
     return "\n".join(lines) + "\n"
 
 
@@ -304,7 +345,7 @@ def main(argv=None):
         else:
             with open(a.report) as f:
                 res = score(m, report=f.read())
-        print(table(res, f"Seeded defects in {os.path.basename(m['seeded'])}"))
+        print(table(res, f"Seeded defects in {os.path.basename(m['seeded'])}", m))
         return 0
     volts = {k: float(v) for k, v in (kv.split("=", 1) for kv in a.voltage)}
     m = seed(a.board, a.schematic, volts, a.out)
@@ -317,8 +358,8 @@ def main(argv=None):
     seeded = run_checks(m["seeded"], a.schematic, volts)
     for i, x in enumerate(seeded, 1):
         x["id"] = f"F{i}"
-    res = score(m, findings=seeded)
-    text = table(res, "Scripted checks (design-review) on the seeded board")
+    res = score(m, findings=seeded, baseline=clean)
+    text = table(res, "Scripted checks (design-review) on the seeded board", m)
     base = [x for x in clean if x["severity"] in ("BLOCKER", "MAJOR", "MINOR")]
     text += (f"\nOn the clean board the same checks report {len(base)} finding(s) at MINOR or above "
              "(each a real issue or a false positive, for the owner to triage):\n\n"

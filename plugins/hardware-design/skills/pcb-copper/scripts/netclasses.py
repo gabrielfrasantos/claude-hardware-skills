@@ -189,7 +189,9 @@ def cmd_apply(a):
         if c is None:
             c = dict(template, name=name, priority=0)
             classes.append(c)
-        c.update(clearance=s["clearance"], via_drill=s["via_drill"], via_diameter=s["via_diameter"])
+        c.update(via_drill=s["via_drill"], via_diameter=s["via_diameter"])
+        if not s["impedance"] or (c.get("clearance") or 0) < s["clearance"]:
+            c["clearance"] = s["clearance"]
         if not s["impedance"]:
             c["track_width"] = s["track_width"]
         rows.append(s)
@@ -384,9 +386,12 @@ def cmd_check(a):
         if c is None:
             ex["class_values_stale"].append(f"{cls}: not defined in the project (run apply)")
             continue
-        want = [("clearance", s["clearance"]), ("via_drill", s["via_drill"]), ("via_diameter", s["via_diameter"])]
-        if not s["impedance"]:
-            want.append(("track_width", s["track_width"]))
+        want = [("via_drill", s["via_drill"]), ("via_diameter", s["via_diameter"])]
+        if s["impedance"]:
+            if (c.get("clearance") or 0) < s["clearance"] - 1e-4:
+                want.append(("clearance", s["clearance"]))
+        else:
+            want += [("clearance", s["clearance"]), ("track_width", s["track_width"])]
         bad = [f"{k} {c.get(k)} ≠ {v:g}" for k, v in want if abs((c.get(k) or 0) - v) > 1e-4]
         if bad:
             ex["class_values_stale"].append(f"{cls}: " + ", ".join(bad))

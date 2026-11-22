@@ -75,7 +75,7 @@ A net's class name says what sizes it. Put the name on a **net-class directive l
 |---|---|---|
 | `nets_in_default` | hard | nets with two or more pads left in the Default class |
 | `unknown_classes` | hard | classes in use that are not in the set (accept with `--allow`) |
-| `class_values_stale` | hard | a standard class whose width, clearance or vias differ from what `apply` writes, or that is not defined |
+| `class_values_stale` | hard | a standard class whose width, clearance or vias differ from what `apply` writes, or that is not defined. An impedance class keeps the width and gap you set from the calculator; only a clearance below the fab design value is stale |
 | `tracks_below_class_width` | hard | a track narrower than its class on its layer (inner width on inner layers). A track that necks into a pad narrower than the class is allowed if it is at least as wide as the pad; the report counts them |
 | `required_pours_missing` | hard | a net whose class must be a pour has no copper zone |
 | `impedance_unset` | soft | a `DIFF_*` / `RF_50` class still at the Default width |

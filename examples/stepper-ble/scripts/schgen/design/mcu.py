@@ -44,7 +44,7 @@ def smps_and_clocks(sh):
     sh.rail("VFBSMPS", 83.82, [l2["2"], c["1"]], label="right", ext=10.16)
     sh.net(c["2"], "GND")
 
-    sh.box(104.14, 71.12, 160.02, 101.6, "HSE 32 MHz, internal load caps (DS11929 6.3.10)")
+    sh.box(104.14, 71.12, 160.02, 101.6, "HSE 32 MHz (DS11929 6.3.10)")
     y = part(sh, "X32M", "Y401", (132.08, 83.82))
     sh.net(y["1"], "HSE_IN")
     sh.net(y["3"], "HSE_OUT")
@@ -84,7 +84,7 @@ def build(project, values):
     reset_boot_analog(sh)
 
     u = part(sh, "MCU", "U401", (203.2, 142.24))
-    sh.box(167.64, 78.74, 248.92, 195.58, "STM32WB55CGU6 (UFQFPN48)")
+    sh.box(161.29, 78.74, 248.92, 195.58, "STM32WB55CGU6 (UFQFPN48)")
     sh.rail("+3V3", 96.52, [u["1"], u["20"], u["35"], u["48"]], tap=(199.39, (0, -1)))
     sh.rail("+3V3", 96.52, [u["23"], u["34"], u["40"]], tap=(212.09, (0, -1)))
     sh.net(u["8"], "VDDA")

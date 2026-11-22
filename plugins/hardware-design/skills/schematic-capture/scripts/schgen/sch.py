@@ -437,24 +437,24 @@ class Project:
             node.append(self._prop("Value", p.value, xr, p.y + 1.27, fa, j, hide=p.hide_value))
         elif npins <= 3 and (by1 - by0) <= 5.2:
             node.append(self._prop("Reference", p.ref, p.x, by0 - 1.27, fa))
-            node.append(self._prop("Value", p.value, p.x, by1 + 2.2, fa))
+            node.append(self._prop("Value", p.value, p.x, by1 + 2.2, fa, hide=p.hide_value))
         elif p.rot != 0:
             cx = (bx0 + bx1) / 2
             node.append(self._prop("Reference", p.ref, cx, by0 - 1.9, fa))
-            node.append(self._prop("Value", p.value, cx, by1 + 2.5, fa))
+            node.append(self._prop("Value", p.value, cx, by1 + 2.5, fa, hide=p.hide_value))
         else:
             pins = [p.pin(q.number) for q in p.unit_pins()]
             top = any(q.out == (0, -1) for q in pins)
             bottom = any(q.out == (0, 1) for q in pins)
             if bottom and not top:
                 node.append(self._prop("Reference", p.ref, bx0, by0 - 3.81, 0, "left"))
-                node.append(self._prop("Value", p.value, bx0, by0 - 1.27, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by0 - 1.27, 0, "left", hide=p.hide_value))
             elif top and not bottom:
                 node.append(self._prop("Reference", p.ref, bx0, by1 + 1.9, 0, "left"))
-                node.append(self._prop("Value", p.value, bx0, by1 + 4.45, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by1 + 4.45, 0, "left", hide=p.hide_value))
             else:
                 node.append(self._prop("Reference", p.ref, bx0, by0 - 1.27, 0, "left"))
-                node.append(self._prop("Value", p.value, bx0, by1 + 1.9, 0, "left"))
+                node.append(self._prop("Value", p.value, bx0, by1 + 1.9, 0, "left", hide=p.hide_value))
         for k, v in p.fields.items():
             node.append(self._prop(k, v, p.x, p.y, 0, hide=True))
         for number in dict.fromkeys(q.number for q in p.sym.pins):
@@ -473,7 +473,8 @@ class Project:
                 self.lint.append(f"{sh.name}: text '{sa}' runs past the sheet border")
         for i, (a, oa, sa) in enumerate(tb):
             for b, ob, sb in tb[i + 1:]:
-                if oa != ob and overlap(a, b, -TEXT_GAP):
+                labels = isinstance(oa, tuple) and isinstance(ob, tuple) and oa[0] == ob[0] == "label"
+                if oa != ob and overlap(a, b, 0.0 if labels else -TEXT_GAP):
                     self.lint.append(f"{sh.name}: text '{sa}' overlaps '{sb}'")
             for part, body in bboxes:
                 if part.ref != oa and overlap(a, body, -TEXT_GAP):
@@ -486,6 +487,31 @@ class Project:
                     if overlap(a, pin, 0.1):
                         self.lint.append(f"{sh.name}: text '{sa}' overlaps pin {part.ref}.{q.number}")
                         break
+
+    def _box_lint(self, name, rects, bboxes):
+        """Report a block outline that runs through a part's body or a text."""
+        items = [(body, part.ref) for part, body in bboxes if not part.ref.startswith("#")]
+        items += [(b, f"text '{t}'") for b, _, t in self._tb]
+        for r in rects:
+            for b, what in items:
+                inside = r[0] <= b[0] and r[1] <= b[1] and b[2] <= r[2] and b[3] <= r[3]
+                if overlap(r, b, 0.0) and not inside:
+                    self.lint.append(f"{name}: box outline at ({r[0]:g}, {r[1]:g}) crosses {what}")
+
+    def _root_lint(self, sheet_rects, texts):
+        """Root page: notes against the sheet symbols, each other and the border."""
+        w, h = PAPER["A3"]
+        boxes = [(b, f"sheet {n}") for b, n in sheet_rects]
+        for s, x, y, size, bold in texts:
+            lines = s.split("\n")
+            tw = max(len(ln) for ln in lines) * size * TEXT_W
+            boxes.append(((x, y - len(lines) * size * 1.65, x + tw, y), f"text '{lines[0]}'"))
+        for i, (a, na) in enumerate(boxes):
+            if a[0] < 10 or a[1] < 10 or a[2] > w - 10 or a[3] > h - 10:
+                self.lint.append(f"root: {na} runs past the sheet border")
+            for b, nb in boxes[i + 1:]:
+                if overlap(a, b, -TEXT_GAP):
+                    self.lint.append(f"root: {na} overlaps {nb}")
 
     def _power_part(self, sh, net, x, y, out):
         lib_id = self.power_syms[net]
@@ -530,7 +556,7 @@ class Project:
                 glob = net in self.global_nets
                 gl = 1.27 if glob else 0.0
                 bx = text_box(x + out[0] * gl, y + out[1] * gl, (net + "  ") if glob else net,
-                              FONT * 1.5 if glob else FONT * 1.4, 90 if ang_ in (90, 270) else 0,
+                              FONT * 1.5 if glob else FONT * 1.2, 90 if ang_ in (90, 270) else 0,
                               "left" if ang_ in (0, 90) else "right", not glob, width=FONT)
                 self._tb.append((bx, ("label", net, x, y), net))
             if net in self.power_syms:
@@ -846,6 +872,7 @@ class Project:
             w = max(len(ln) for ln in lines) * size * TEXT_W
             self._tb.append(((x, y - len(lines) * size * 1.65, x + w, y), ("text", x, y), lines[0]))
         self._text_lint(sh, bboxes)
+        self._box_lint(sh.name, sh.rects + table_rects, bboxes)
         self._tb = None
         comments = [self.title] + self.comments
         tree = [Sym("kicad_sch"), [Sym("version"), VERSION], [Sym("generator"), Str("eeschema")],
@@ -857,7 +884,7 @@ class Project:
         return tree
 
     def _root_tree(self, texts):
-        items = []
+        items, sheet_rects = [], []
         x0, y0, w, h = 30.48, 63.5, 83.82, 33.02
         for i, sh in enumerate(self.sheets):
             col, row = i % 4, i // 4
@@ -874,13 +901,18 @@ class Project:
                            self._effects(FONT, "left top")],
                           [Sym("instances"), [Sym("project"), Str(self.name),
                                               [Sym("path"), Str(f"/{self.root_uuid}"), [Sym("page"), Str(sh.page)]]]]])
+            sheet_rects.append(((x, y - 2.5, x + w, y + h + 2.5), sh.sheetname))
             if sh.desc:
+                dw = max(len(d) for d in sh.desc) * FONT * TEXT_W
+                if x + 2.54 + dw > x + w - 1.27:
+                    self.lint.append(f"root: description of {sh.sheetname} runs past its sheet symbol")
                 items.append([Sym("text"), Str("\n".join(sh.desc)), [Sym("exclude_from_sim"), False],
                               [Sym("at"), r3(x + 2.54), snap(y + 5.08 + (len(sh.desc) - 1) * 2.1), 0],
                               self._effects(FONT, "left bottom"), [Sym("uuid"), uid("root", "desc", sh.name)]])
         for i, (s, x, y, size, bold) in enumerate(texts):
             items.append([Sym("text"), Str(s), [Sym("exclude_from_sim"), False], [Sym("at"), x, y, 0],
                           self._effects(size, "left bottom", bold=bold), [Sym("uuid"), uid("root", "text", i)]])
+        self._root_lint(sheet_rects, texts)
         return [Sym("kicad_sch"), [Sym("version"), VERSION], [Sym("generator"), Str("eeschema")],
                 [Sym("generator_version"), Str(GENERATOR_VERSION)], [Sym("uuid"), self.root_uuid],
                 [Sym("paper"), Str("A3")], self._title_block(self.title, self.comments), [Sym("lib_symbols")]] + \

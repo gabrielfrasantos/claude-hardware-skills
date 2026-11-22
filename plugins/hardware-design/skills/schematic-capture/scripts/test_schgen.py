@@ -65,6 +65,10 @@ DESIGN = textwrap.dedent('''
         if values.get("table"):
             sh.netclass("LED", "SIGNAL")
             sh.class_table(215.9, 20.32)
+        if values.get("hide"):
+            u.hide_value = True
+        if values.get("boxcut"):
+            sh.box(45.72, 50.8, 50.8, 71.12)
         if values.get("crowd"):
             r2 = sh.part("Device:R", "R2", "10k", (53.34, 60.96), fp="Resistor_SMD:R_0402", lcsc="C2", mpn="R-1")
             sh.nets(r2, {"1": "+3V3", "2": "LED"})
@@ -167,6 +171,30 @@ class Build(unittest.TestCase):
         code, project, out = p.build()
         self.assertEqual(code, 1, out)
         self.assertTrue(any("overlaps" in item for item in project.lint), project.lint)
+
+    def test_hide_value_on_an_ic(self):
+        p = Project()
+        (p.dir / "schgen" / "values.json").write_text(json.dumps({"R1": "10k", "hide": True}))
+        self.assertEqual(p.build()[0], 0)
+        text = (p.dir / "hw" / "main.kicad_sch").read_text()
+        value = text[text.rindex('(property "Value" "MCU"'):]
+        self.assertIn("(hide yes)", value[:value.index("(property", 10)])
+
+    def test_box_through_a_part_is_lint(self):
+        p = Project()
+        (p.dir / "schgen" / "values.json").write_text(json.dumps({"R1": "10k", "boxcut": True}))
+        code, project, _ = p.build()
+        self.assertEqual(code, 1)
+        self.assertTrue(any("box outline" in item and "R1" in item for item in project.lint), project.lint)
+
+    def test_root_notes_are_lint(self):
+        p = Project()
+        cfg = p.config.read_text().replace("ROOT_NOTES = [(\"t rev A\", 30.48, 30.48", "ROOT_NOTES = [(\"t rev A\", 40.64, 76.2")
+        p.config.write_text(cfg)
+        code, project, _ = p.build()
+        self.assertEqual(code, 1)
+        self.assertTrue(any(item.startswith("root: text 't rev A' overlaps sheet") or
+                            ("root:" in item and "t rev A" in item) for item in project.lint), project.lint)
 
     def test_load_pinmap(self):
         d = pathlib.Path(tempfile.mkdtemp()) / "m.txt"

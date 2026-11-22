@@ -25,7 +25,48 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import pcb_rules as PR  # noqa: E402
 
-CHAR_W = 0.85
+# KiCad 10 stroke font at size 1, pen centreline: advance, ink left, ink right, height above and depth below the
+# centre line of a centre-justified text. Measured with pcbnew 10.0.8 (PCB_TEXT.GetEffectiveTextShape), 2026-11-22.
+GLYPHS = {
+    "A": (0.857, 0.161, 0.828, 0.543, 0.457), "B": (1.000, 0.304, 0.875, 0.543, 0.457),
+    "C": (1.000, 0.256, 0.875, 0.543, 0.457), "D": (1.000, 0.304, 0.875, 0.543, 0.457),
+    "E": (0.905, 0.304, 0.780, 0.543, 0.457), "F": (0.857, 0.304, 0.780, 0.543, 0.457),
+    "G": (1.000, 0.256, 0.875, 0.543, 0.457), "H": (1.048, 0.304, 0.875, 0.543, 0.457),
+    "I": (0.476, 0.304, 0.304, 0.543, 0.457), "J": (0.762, 0.209, 0.590, 0.543, 0.457),
+    "K": (1.000, 0.304, 0.875, 0.543, 0.457), "L": (0.809, 0.304, 0.780, 0.543, 0.457),
+    "M": (1.143, 0.304, 0.971, 0.543, 0.457), "N": (1.048, 0.304, 0.875, 0.543, 0.457),
+    "O": (1.048, 0.256, 0.923, 0.543, 0.457), "P": (1.000, 0.304, 0.875, 0.543, 0.457),
+    "Q": (1.048, 0.256, 0.971, 0.543, 0.553), "R": (1.000, 0.304, 0.875, 0.543, 0.457),
+    "S": (0.952, 0.256, 0.828, 0.543, 0.457), "T": (0.762, 0.161, 0.733, 0.543, 0.457),
+    "U": (1.048, 0.304, 0.875, 0.543, 0.457), "V": (0.857, 0.161, 0.828, 0.543, 0.457),
+    "W": (1.143, 0.209, 1.066, 0.543, 0.457), "X": (0.952, 0.209, 0.875, 0.543, 0.457),
+    "Y": (0.857, 0.161, 0.828, 0.543, 0.457), "Z": (0.952, 0.209, 0.875, 0.543, 0.457),
+    "0": (0.952, 0.256, 0.828, 0.543, 0.457), "1": (0.952, 0.256, 0.828, 0.543, 0.457),
+    "2": (0.952, 0.209, 0.828, 0.543, 0.457), "3": (0.952, 0.209, 0.828, 0.543, 0.457),
+    "4": (0.952, 0.256, 0.875, 0.590, 0.457), "5": (0.952, 0.256, 0.828, 0.543, 0.457),
+    "6": (0.952, 0.256, 0.828, 0.543, 0.457), "7": (0.952, 0.209, 0.875, 0.543, 0.457),
+    "8": (0.952, 0.256, 0.828, 0.543, 0.457), "9": (0.952, 0.256, 0.828, 0.543, 0.457),
+    "a": (0.905, 0.256, 0.733, 0.209, 0.457), "b": (0.905, 0.304, 0.780, 0.543, 0.457),
+    "c": (0.857, 0.256, 0.733, 0.209, 0.457), "d": (0.905, 0.256, 0.733, 0.543, 0.457),
+    "e": (0.857, 0.256, 0.733, 0.209, 0.457), "f": (0.571, 0.161, 0.542, 0.543, 0.457),
+    "g": (0.905, 0.256, 0.733, 0.209, 0.791), "h": (0.905, 0.304, 0.733, 0.543, 0.457),
+    "i": (0.476, 0.256, 0.351, 0.543, 0.457), "j": (0.476, 0.113, 0.351, 0.543, 0.791),
+    "k": (0.809, 0.304, 0.685, 0.543, 0.457), "l": (0.524, 0.304, 0.447, 0.543, 0.457),
+    "m": (1.333, 0.304, 1.161, 0.209, 0.457), "n": (0.905, 0.304, 0.733, 0.209, 0.457),
+    "o": (0.905, 0.256, 0.780, 0.209, 0.457), "p": (0.905, 0.304, 0.780, 0.209, 0.791),
+    "q": (0.905, 0.256, 0.733, 0.209, 0.791), "r": (0.619, 0.304, 0.590, 0.209, 0.457),
+    "s": (0.809, 0.256, 0.685, 0.209, 0.457), "t": (0.571, 0.161, 0.542, 0.543, 0.457),
+    "u": (0.905, 0.304, 0.733, 0.209, 0.457), "v": (0.762, 0.209, 0.685, 0.209, 0.457),
+    "w": (1.048, 0.209, 0.971, 0.209, 0.457), "x": (0.809, 0.209, 0.733, 0.209, 0.457),
+    "y": (0.762, 0.209, 0.685, 0.209, 0.791), "z": (0.809, 0.209, 0.733, 0.209, 0.457),
+    "_": (0.762, 0.066, 0.828, -0.553, 0.553), "-": (1.238, 0.304, 1.066, -0.076, 0.076),
+    "+": (1.238, 0.304, 1.066, 0.304, 0.457), ".": (0.476, 0.256, 0.351, -0.362, 0.457),
+    "~": (0.714, 0.161, 0.637, 0.019, 0.076), "/": (1.048, 0.161, 1.018, 0.590, 0.696),
+    "#": (1.000, 0.161, 0.971, 0.638, 0.648),
+}
+GLYPH_DEFAULT = (1.0, 0.256, 0.875, 0.543, 0.457)
+GLYPH_ORIGIN = 0.0658    # the table's left/right include this offset (0.658 x the 0.1 pen it was measured with)
+TEXT_MARGIN = 0.02
 SILK_CLEAR = 0.15
 OPTIONAL_LAYERS = re.compile(r"^(User\.\d+|User\.(Drawings|Comments|Eco1|Eco2)|Eco[12]\.User|Dwgs\.User|Cmts\.User)$")
 SILK = ("F.SilkS", "B.SilkS")
@@ -75,15 +116,57 @@ def hits(a, b):
     return a[0] < b[2] and b[0] < a[2] and a[1] < b[3] and b[1] < a[3]
 
 
+def gap(a, b):
+    """Euclidean distance between two boxes, 0 when they touch or overlap."""
+    return math.hypot(max(0.0, b[0] - a[2], a[0] - b[2]), max(0.0, b[1] - a[3], a[1] - b[3]))
+
+
 def union(boxes):
     return (min(b[0] for b in boxes), min(b[1] for b in boxes), max(b[2] for b in boxes), max(b[3] for b in boxes))
 
 
+def text_span(s, size, thick):
+    """(u0, u1, v0, v1): ink of a centre-justified one-line text in KiCad's stroke font, u along the text from
+    its anchor, v down from it, at angle 0."""
+    g = [GLYPHS.get(c, GLYPH_DEFAULT) for c in s] or [GLYPH_DEFAULT]
+    half = sum(a for a, *_ in g) / 2
+    u0 = (g[0][1] - GLYPH_ORIGIN - half) * size
+    u1 = (sum(a for a, *_ in g[:-1]) + g[-1][2] - GLYPH_ORIGIN - half) * size
+    v0, v1 = -max(x[3] for x in g) * size, max(x[4] for x in g) * size
+    e = thick / 2 + TEXT_MARGIN
+    return u0 - e, u1 + e, v0 - e, v1 + e
+
+
+def text_extent(s, size, thick):
+    u0, u1, v0, v1 = text_span(s, size, thick)
+    return u1 - u0, v1 - v0
+
+
+def _place(cx, cy, ang, u0, u1, v0, v1):
+    a = round(ang) % 360
+    if a == 90:
+        return (cx + v0, cy - u1, cx + v1, cy - u0)
+    if a == 180:
+        return (cx - u1, cy - v1, cx - u0, cy - v0)
+    if a == 270:
+        return (cx - v1, cy + u0, cx - v0, cy + u1)
+    return (cx + u0, cy + v0, cx + u1, cy + v1)
+
+
 def text_box(cx, cy, s, size, thick, ang=0):
-    w, h = len(s) * size * CHAR_W + thick, size + thick
-    if round(ang) % 180 == 90:
-        w, h = h, w
-    return (cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2)
+    return _place(cx, cy, ang, *text_span(s, size, thick))
+
+
+def glyph_boxes(cx, cy, s, size, thick, ang=0):
+    """One box per character: closer to KiCad's stroke-level clearance than the text's box."""
+    g = [GLYPHS.get(c, GLYPH_DEFAULT) for c in s] or [GLYPH_DEFAULT]
+    x = -sum(a for a, *_ in g) / 2 - GLYPH_ORIGIN
+    e = thick / 2 + TEXT_MARGIN
+    out = []
+    for adv, left, right, up, down in g:
+        out.append(_place(cx, cy, ang, (x + left) * size - e, (x + right) * size + e, -up * size - e, down * size + e))
+        x += adv
+    return out
 
 
 def _f(node, key, n=2):
@@ -197,7 +280,7 @@ def place_all(fps, board, size, thick, to_pad):
     order = sorted((f for f in fps if f["ref"] and not f["ref"].startswith("#")),
                    key=lambda f: -(f["body"][2] - f["body"][0]) * (f["body"][3] - f["body"][1]))
     for f in order:
-        w, h = len(f["ref"]) * size * CHAR_W + thick, size + thick
+        w, h = text_extent(f["ref"], size, thick)
         others = [(f2["side"], f2["body"]) for f2 in fps if f2 is not f]
         best = None
         tries = [(strict, ang, c) for strict in (True, False) for ang in (0, 90)
@@ -336,17 +419,18 @@ def check(text, size, thick, to_pad):
             rows["refs_small"].append(f"{f['ref']} {f['ref_size']} / {f['ref_thick']} mm")
         cx, cy = to_board(f["x"], f["y"], f["rot"], f["ref_at"][0], f["ref_at"][1])
         tb = text_box(cx, cy, f["ref"], f["ref_size"], f["ref_thick"], f["ref_at"][2] if len(f["ref_at"]) > 2 else 0)
-        boxes.append((f, tb))
-    for f, tb in boxes:
+        boxes.append((f, tb, glyph_boxes(cx, cy, f["ref"], f["ref_size"], f["ref_thick"],
+                                         f["ref_at"][2] if len(f["ref_at"]) > 2 else 0)))
+    for f, tb, gb in boxes:
         if board and not (board[0] <= tb[0] and tb[2] <= board[2] and board[1] <= tb[1] and tb[3] <= board[3]):
             rows["refs_outside"].append(f["ref"])
         if any(f2["side"] == f["side"] and hits(tb, grow(p, to_pad - 0.02)) for f2 in fps for p in f2["pads"]):
             rows["refs_on_pads"].append(f["ref"])
-        if any(f2["side"] == f["side"] and hits(tb, grow(b, SILK_CLEAR)) for f2 in fps for b in f2["lines"]):
+        if any(f2["side"] == f["side"] and gap(g, b) < SILK_CLEAR for f2 in fps for b in f2["lines"] for g in gb):
             rows["refs_on_lines"].append(f["ref"])
-    for i, (f, a) in enumerate(boxes):
-        for g, b in boxes[i + 1:]:
-            if f["side"] == g["side"] and hits(a, grow(b, SILK_CLEAR)):
+    for i, (f, _, ga) in enumerate(boxes):
+        for g, _, gb in boxes[i + 1:]:
+            if f["side"] == g["side"] and min(gap(a, b) for a in ga for b in gb) < SILK_CLEAR:
                 rows["refs_overlapping"].append(f"{f['ref']} / {g['ref']}")
     return rows
 

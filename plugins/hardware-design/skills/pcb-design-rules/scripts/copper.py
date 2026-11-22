@@ -315,6 +315,7 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
     # connection items per (net, layer)
     terms = defaultdict(list)
     stitch = defaultdict(list)                               # net -> points that join layers (vias, THT pads)
+    stitch_geoms = defaultdict(list)
     pad_geoms = []
     for p in board.pads:
         if not p["net"] or not p["layers"]:
@@ -325,6 +326,7 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
             terms[(p["net"], l)].append(g)
         if p["kind"] == "thru_hole":
             stitch[p["net"]].append((p["x"], p["y"]))
+            stitch_geoms[p["net"]].append(g)
     via_geoms = []
     for v in board.vias:
         g = Point(v["x"], v["y"]).buffer(v["d"] / 2, 12)
@@ -332,9 +334,14 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
         for l in v["layers"]:
             terms[(v["net"], l)].append(g)
         stitch[v["net"]].append((v["x"], v["y"]))
+        stitch_geoms[v["net"]].append(g)
     for s in board.segments:
         terms[(s["net"], s["layer"])].append(_seg_geom(s))
     trees = {k: STRtree(v) for k, v in terms.items()}
+
+    def joins_layers(piece, net):
+        grown = piece.buffer(1e-3)
+        return any(grown.intersects(g) for g in stitch_geoms.get(net, []))
 
     def touches(net, layer, geom):
         t = trees.get((net, layer))
@@ -403,8 +410,7 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
                     ex["zone_islands"].append(f"{net} on {layer} at ({rp.x:.2f}, {rp.y:.2f}), {piece.area:.2f} mm²")
                     continue
                 if is_ground(net) and len(layers) > 1 and piece.area >= PLANE_PIECE_MM2:
-                    pts = stitch.get(net, [])
-                    if not any(piece.buffer(1e-3).contains(Point(x, y)) for x, y in pts):
+                    if not joins_layers(piece, net):
                         unstitched += 1
                         ex["unstitched_ground"].append(f"{net} on {layer} at ({rp.x:.2f}, {rp.y:.2f}), {piece.area:.1f} mm²")
                 if len(hit) > 1 and w > 0:
@@ -412,8 +418,7 @@ def report(board, pro_path=None, recorded_roles=None, td_exclude=None, teardrops
                     opened = piece.buffer(-r, 8).buffer(r, 8)
                     comps = sorted((c for c in pieces(opened) if any(c.intersects(h) for h in hit)),
                                    key=lambda c: -c.area)
-                    cut = [c for c in comps[1:] if not (is_ground(net) and any(
-                        c.buffer(1e-3).contains(Point(x, y)) for x, y in stitch.get(net, [])))]
+                    cut = [c for c in comps[1:] if not (is_ground(net) and joins_layers(c, net))]
                     if cut:
                         necks += len(cut)
                         a, b = nearest_points(comps[0], unary_union(cut))

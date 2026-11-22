@@ -3,6 +3,7 @@
 import contextlib
 import io
 import json
+import math
 import os
 import sys
 import tempfile
@@ -89,6 +90,14 @@ class Optimize(unittest.TestCase):
         self.assertTrue(after["valid"])
         self.assertLessEqual(after["ratsnest_mm"], before["ratsnest_mm"])
         self.assertLessEqual(after["crossings"], before["crossings"])
+
+    def test_refine_keeps_parts_near_where_they_were(self):
+        path = board(*PARTS)
+        run("optimize", path, "--effort", "2")
+        start = {p["ref"]: (p["x"], p["y"]) for p in P.Layout(path).parts}
+        run("optimize", path, "--refine", "--effort", "1", "--seed", "3", "--max-move", "1.0")
+        for p in P.Layout(path).parts:
+            self.assertLessEqual(math.dist((p["x"], p["y"]), start[p["ref"]]), 1.0 + 1e-6, p["ref"])
 
     def test_propose_writes_nothing(self):
         path = board(*PARTS)

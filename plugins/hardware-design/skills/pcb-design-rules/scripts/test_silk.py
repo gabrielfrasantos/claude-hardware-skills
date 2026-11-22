@@ -55,6 +55,18 @@ BOARD = """(kicad_pcb
 
 
 class Silk(unittest.TestCase):
+    def test_text_box_contains_kicads_text(self):
+        measured = [                                            # pcbnew 10.0.8 GetEffectiveTextShape().BBox()
+            ("C408", 1, 0.15, 0, (-1.813, -0.668, 1.813, 0.530)),
+            ("SW701", 1, 0.15, 90, (-0.620, -2.361, 0.530, 2.361)),
+            ("FID702", 0.8, 0.12, 0, (-1.946, -0.496, 1.984, 0.424)),
+            ("Q304", 1, 0.15, 270, (-0.625, -1.837, 0.668, 1.885)),
+        ]
+        for s, size, thick, ang, k in measured:
+            o = S.text_box(0, 0, s, size, thick, ang)
+            slack = (k[0] - o[0], k[1] - o[1], o[2] - k[2], o[3] - k[3])
+            self.assertTrue(all(0 <= d <= 0.03 for d in slack), (s, ang, slack))
+
     def test_check_finds_the_problems(self):
         rows = S.check(BOARD, 1.0, 0.15, 0.15)
         self.assertIn("R1: '10k'", rows["other_silk_text"])

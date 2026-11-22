@@ -131,6 +131,11 @@ class Pours(unittest.TestCase):
         self.assertEqual(report(pad_fp("C1", 1, 1, "GND"), fill)["unstitched_ground"], 1)
         self.assertEqual(report(pad_fp("C1", 1, 1, "GND"), fill, via(4, 4, "GND"))["unstitched_ground"], 0)
 
+    def test_thermal_relief_pad_stitches(self):
+        spoke_only = zone("GND", "F.Cu", rect(0, 0, 8, 2.0))
+        tht = pad_fp("J1", 2.5, 2.5, "GND", kind="thru_hole", layers='"*.Cu"')
+        self.assertEqual(report(tht, spoke_only)["unstitched_ground"], 0)
+
     def test_stitching_distance(self):
         m = report(via(0, 0, "GND"), zone("GND", "B.Cu", rect(0, 0, 10, 10)))
         self.assertAlmostEqual(m["gnd_via_max_distance_mm"], 14.14, places=1)

@@ -84,4 +84,4 @@ jobs:
           $PY $HW/pcb-placement/scripts/pins.py check $B --mcu U401 --needs pin-data/pin-needs.txt
           $PY $HW/schematic-capture/scripts/library_check.py $B
           $PY $HW/hardware-project/scripts/trace.py
-          $PY $HW/design-review/scripts/review.py hardware/stepper-ble --voltage VM=30 --voltage VIN_RAW=30 --out review
+          $PY $HW/design-review/scripts/review.py hardware/stepper-ble --allow-unrouted --voltage VM=30 --voltage VIN_RAW=30 --out review

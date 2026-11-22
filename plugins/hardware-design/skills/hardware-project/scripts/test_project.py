@@ -42,6 +42,13 @@ class Project(unittest.TestCase):
             self.assertEqual(project.root(), d)
             self.assertEqual(project.boards(), ["b1"])
             self.assertEqual(project.default_board(), "b1")
+            nested = d / "examples" / "e1"
+            (nested / "hardware" / "e1").mkdir(parents=True)
+            (nested / "hardware" / "e1" / "e1.kicad_pro").write_text("{}")
+            (nested / "docs").mkdir()
+            os.chdir(nested / "docs")
+            self.assertEqual(project.root(), nested)
+            os.chdir(d / "hardware")
             os.environ["HW_BOARD"] = "b2"
             self.assertEqual(project.default_board(), "b2")
         finally:
@@ -135,7 +142,8 @@ class Scaffold(unittest.TestCase):
         for f in ("AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".claude/agents/motor-ctl-board-reviewer.md",
                   "docs/requirements.md", "docs/plan.md", "pin-data/pin-needs.txt", "scripts/schgen/config.py"):
             self.assertTrue((d / f).exists(), f)
-        self.assertTrue((d / "hardware" / "motor-ctl").is_dir())
+        self.assertEqual(json.loads((d / "hardware/motor-ctl/motor-ctl.kicad_pro").read_text())["meta"]["filename"],
+                         "motor-ctl.kicad_pro")
         for f in d.rglob("*"):
             if f.is_file():
                 self.assertNotIn("{{", f.read_text(), f)
@@ -144,6 +152,12 @@ class Scaffold(unittest.TestCase):
         self.assertIn("name: motor-ctl-board-reviewer", (d / ".claude/agents/motor-ctl-board-reviewer.md").read_text())
         self.assertEqual((d / "CLAUDE.md").read_text(), "@AGENTS.md\n")
         self.assertEqual(trace.check(d)["errors"], [])
+
+    def test_without_firmware(self):
+        d = pathlib.Path(tempfile.mkdtemp()) / "repo"
+        args = [a for a in ARGS if a not in ("--firmware", "acme/motor-fw")]
+        self.assertEqual(quiet(scaffold.main, [str(d)] + args)[0], 0)
+        self.assertIn("Firmware: none", (d / "PROJECT_CONTEXT.md").read_text())
 
     def test_never_overwrites(self):
         d = pathlib.Path(tempfile.mkdtemp())

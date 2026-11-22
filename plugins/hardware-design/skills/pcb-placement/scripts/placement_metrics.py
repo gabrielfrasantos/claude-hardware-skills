@@ -119,9 +119,11 @@ def overlaps(board):
 
 
 def decap_distances(board):
+    """Each supply capacitor's distance to the nearest load pad on its net: an IC (U) or a transistor (Q), so a
+    bridge's capacitors count at their FETs."""
     ics = {}
     for f in board.footprints:
-        if re.match(r"^U\d", f["ref"]):
+        if re.match(r"^[UQ]\d", f["ref"]):
             for p in f["pads"]:
                 if p["net"]:
                     ics.setdefault(p["net"], []).append((p["x"], p["y"]))

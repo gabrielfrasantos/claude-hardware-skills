@@ -80,7 +80,7 @@ class Layout:
         # decoupling capacitors: (cap index, dx, dy) per supply net, and the IC pads on it
         self.decaps, self.ic_pads = {}, {}
         for i, p in enumerate(self.parts):
-            if p["ref"][:1] == "U":
+            if p["ref"][:1] in ("U", "Q") and p["ref"][1:2].isdigit():
                 for dx, dy, net in p["pads"]:
                     self.ic_pads.setdefault(net, []).append((i, dx, dy))
         for i, p in enumerate(self.parts):
@@ -205,9 +205,10 @@ def attraction(lay, i, placed):
     return x, y
 
 
-def anneal(lay, seed=1, effort=1.0, log=print, refine=False):
+def anneal(lay, seed=1, effort=1.0, log=print, refine=False, max_move=None):
     """Simulated annealing. refine: start from the current placement at the temperature of 1 mm moves (x 0.1),
-    with steps of at most 2 mm, so a good placement is improved locally instead of scrambled."""
+    with steps of at most 2 mm and no swaps, so a good placement is improved locally instead of scrambled.
+    max_move: no part ends farther than this from where it started (mm)."""
     rng = random.Random(seed)
     mov = [i for i, p in enumerate(lay.parts) if p["movable"]]
     if not mov:
@@ -250,13 +251,16 @@ def anneal(lay, seed=1, effort=1.0, log=print, refine=False):
         p = lay.parts[i]
         b = p["shape"].bounds
         twins = sizes.get((round(b[2] - b[0], 1), round(b[3] - b[1], 1)), [])
-        if len(twins) > 1 and rng.random() < (0.02 if refine else 0.15):                               # swap with a same-size part
+        if len(twins) > 1 and not refine and rng.random() < 0.15:                                      # swap with a same-size part
             j = rng.choice([q for q in twins if q != i])
             q = lay.parts[j]
             d = lay.try_move([(i, q["x"], q["y"]), (j, p["x"], p["y"])], t, rng)
         else:
             sigma = max(0.25, (2.0 if refine else span * 0.3) * math.sqrt(frac))
-            d = lay.try_move([(i, p["x"] + rng.gauss(0, sigma), p["y"] + rng.gauss(0, sigma))], t, rng)
+            x, y = p["x"] + rng.gauss(0, sigma), p["y"] + rng.gauss(0, sigma)
+            if max_move is not None and math.dist((x, y), (p["x0"], p["y0"])) > max_move:
+                continue
+            d = lay.try_move([(i, x, y)], t, rng)
         accepted += d is not None
         t *= alpha
         if log and (k + 1) % max(1, steps // 5) == 0:
@@ -402,8 +406,10 @@ def cmd_optimize(a, propose=False):
     print(f"{'proposing' if propose else 'optimizing'} {n} footprints of {len(lay.parts)} "
           f"({len(lay.nets)} signal nets, {sum(len(v) for v in lay.decaps.values())} decoupling caps)")
     before = measure(a.board, plane)
-    anneal(lay, a.seed, a.effort, refine=propose or getattr(a, "refine", False))
-    stuck = legalize(lay)
+    refine = getattr(a, "refine", False)
+    max_move = a.max_move if refine else None
+    anneal(lay, a.seed, a.effort, refine=propose or refine, max_move=max_move)
+    stuck = legalize(lay, radius=max_move or 60.0)
     if propose:
         rows = sorted(((math.dist((p["x"], p["y"]), (p["x0"], p["y0"])), p["ref"], p["x"] - p["x0"], p["y"] - p["y0"])
                        for p in lay.parts if p["locked"]), reverse=True)
@@ -428,10 +434,17 @@ def cmd_optimize(a, propose=False):
         tmp = out + ".refine.kicad_pcb"
         write(lay, tmp)
         trial = measure(tmp, plane)
+        sp0 = sp1 = 0
+        if a.assembly != "none":
+            import dfa
+            sp0 = dfa.check(a.board, a.assembly)[0]["assembly_spacing"]
+            sp1 = dfa.check(tmp, a.assembly)[0]["assembly_spacing"]
         os.remove(tmp)
-        if not (trial["valid"] and trial["ratsnest_mm"] <= before["ratsnest_mm"] and trial["crossings"] <= before["crossings"]):
+        if not (trial["valid"] and trial["ratsnest_mm"] <= before["ratsnest_mm"] and trial["crossings"] <= before["crossings"]
+                and sp1 <= sp0):
             print(f"refine found nothing better (ratsnest {before['ratsnest_mm']} -> {trial['ratsnest_mm']} mm, crossings "
-                  f"{before['crossings']} -> {trial['crossings']}, valid {trial['valid']}): board left as it was")
+                  f"{before['crossings']} -> {trial['crossings']}, assembly spacing {sp0} -> {sp1}, valid {trial['valid']}): "
+                  "board left as it was")
             return 0
     moved = write(lay, out)
     after = measure(out, plane)
@@ -509,6 +522,10 @@ def main(argv=None):
             p.add_argument("--out")
             p.add_argument("--only", help="move only these references (comma-separated)")
             p.add_argument("--refine", action="store_true", help="improve an existing placement locally (no global search)")
+            p.add_argument("--max-move", type=float, default=2.0,
+                           help="with --refine: how far a part may end from where it was (mm, default 2)")
+            p.add_argument("--assembly", default="jlcpcb",
+                           help="with --refine: write only if this assembler's spacing gets no worse ('none' to skip)")
             p.add_argument("--report")
     r = sub.add_parser("render")
     r.add_argument("board")

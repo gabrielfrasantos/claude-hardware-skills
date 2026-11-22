@@ -60,15 +60,14 @@ The CI job `example-board` runs these. Results on 2026-11-22, KiCad 10.0.8:
 | `library_check.py` | PASS (no pin without pad, no pad without pin, every BOM part with LCSC and MPN) |
 | `pcb_rules.py check --allow-unrouted --gate zone_islands=2` | PASS: 0 shorts, 0 clearance, 0 below fab minimum, 0 DRC errors, schematic parity 0 errors; soft: `gnd_via_max_distance_mm` (no vias yet) |
 | `netclasses.py check` | PASS |
-| `silk.py check` | PASS (KiCad DRC still reports 3 silk-to-line warnings at 0.10-0.15 mm) |
+| `silk.py check` | PASS; KiCad DRC reports no silkscreen findings |
 | `place.py gate --enforce --baseline` | valid, ratios 1.00; assembly spacing 0; ratsnest 1475 mm, 231 crossings |
 | `pins.py check --mcu U401` | PASS, 21 of 21 functions |
 | `trace.py` | PASS, 26 requirements, 27 decisions |
-| `review.py --voltage VM=30 --voltage VIN_RAW=30` | 0 BLOCKER, 1 MAJOR, 12 MINOR, 3 NOTE |
+| `review.py --allow-unrouted --voltage VM=30 --voltage VIN_RAW=30` | 0 BLOCKER, 0 MAJOR, 12 MINOR, 3 NOTE |
 | `jlc_stock.py bom/bom.csv --boards 5` (not in CI) | 0 problems; 44 lines, 28 extended parts |
 
-The review's MAJOR is KiCad's 245 unconnected items: the board is not routed and `review.py` has no
-`--allow-unrouted`. The MINORs are DC-bias screening on the 50 V and 6.3 V MLCCs (D-004, OI-4) and connector nets
+The board is not routed, so `--allow-unrouted` leaves KiCad's unconnected items out. The MINORs are DC-bias screening on the 50 V and 6.3 V MLCCs (D-004, OI-4) and connector nets
 without an ESD part (VIN_N, CC1/CC2, the TC2030 land: D-003, D-008, D-009).
 
 ## What was not checked

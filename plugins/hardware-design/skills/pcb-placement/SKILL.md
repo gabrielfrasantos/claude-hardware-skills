@@ -34,7 +34,7 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
    ```
    Parked parts start at the centre of their connections; annealing moves and swaps them; each part still in conflict then goes to the nearest legal spot on a 0.05 mm grid. Try two or three `--seed` values and keep the best gate result. `--effort 10` searches longer (about 2 min per 160 parts).
 3. **Render again and look.** Check what the cost does not see (§3): decoupling capacitors on the IC's side and at its pins (`mcu-circuit-design` §2), hot loops closed tight (`power-pcb-layout` §3), crystal next to its pins, ESD at the connector (`interface-layout` §2), RF and vendor copies untouched (`rf-layout`), rotation for short escapes. Fix those by hand in KiCad or with `--only`.
-4. **Refine** what you changed: `place.py optimize board.kicad_pcb --refine`. It improves locally and writes only if ratsnest and crossings both get no worse.
+4. **Refine** what you changed: `place.py optimize board.kicad_pcb --refine`. It improves locally: no part moves more than `--max-move` (2 mm) from where it was, and parts are never swapped. It writes only if ratsnest, crossings and the assembler's spacing violations all get no worse. A larger `--max-move` lets it undo intent the cost doesn't see (a capacitor at the FET it serves, a TVS at the connector), so render and look again after it.
 5. **Gate** before routing:
    ```bash
    python3 scripts/place.py gate board.kicad_pcb --baseline accepted.json --report placement.md
@@ -47,7 +47,7 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
 | Sees | Does not see |
 |---|---|
 | ratsnest length of every signal net (Manhattan MST of its pads; ground and poured nets are planes and left out) | rotation and side: both are kept; rotate parts yourself, then `--refine` |
-| decoupling capacitor to the nearest IC pad on its supply, weighted × 2 | which IC pin a capacitor belongs to beyond "nearest on its net"; that bulk capacitors belong at their stage, not the nearest IC; room for references |
+| decoupling capacitor to the nearest load pad on its supply (an IC, U, or a transistor, Q, so a bridge's capacitors count at its FETs), weighted × 2 | which pin a capacitor belongs to beyond "nearest on its net"; a bulk capacitor that belongs at a stage with no U or Q (a connector, a fuse); room for references |
 | courtyard overlaps, the board outline inset by `--edge-mm` (0.5), footprint keep-outs | the assembler's package-pair spacing and edge keep-outs (the gate checks them, §4.1; fix with `--refine` or by hand); DRC custom rules; thermal, mechanical, RF or hot-loop intent |
 | | ratsnest crossings (the gate measures them; the cost does not) |
 

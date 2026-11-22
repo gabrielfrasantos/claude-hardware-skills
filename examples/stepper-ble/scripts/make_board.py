@@ -27,32 +27,22 @@ SCH, PCB, PRO = HW / "stepper-ble.kicad_sch", HW / "stepper-ble.kicad_pcb", HW /
 FP_DIRS = {"stepper-ble": HW / "stepper-ble.pretty"}
 SYSTEM_FP = pathlib.Path("/usr/share/kicad/footprints")
 
-# Board: 80 x 60 mm, origin at (100, 100) in KiCad's coordinates.
 X0, Y0, W, H = 100.0, 100.0, 80.0, 60.0
-# Anchors: (x, y, rotation, side), locked. Connectors at the edges, the radio corner top right, the MCU under it.
 ANCHORS = {
-    "J201": (112.0, 106.5, 0, "F"),     # 24 V in, top edge
-    "J301": (127.0, 154.0, 180, "F"),   # motor, bottom edge
-    "J601": (163.0, 155.2, 0, "F"),     # USB-C, bottom edge, mouth out
-    "AE501": (171.0, 106.5, 0, "F"),    # TI SWRA117D antenna, top edge, feed at its right end
-    "U401": (165.0, 124.0, 180, "F"),   # STM32WB55: RF1 side faces the antenna
-    "U301": (137.0, 136.0, 180, "F"),   # DRV8711: gate pins face the bridges, logic pins face the MCU
-    # Power stage above the motor terminal (J301 pins: AOUT1 x 127, AOUT2 121.9, BOUT1 116.8, BOUT2 111.8):
-    # each phase's high-side FET over its low-side FET, the shunt under each bridge's low sides, a VM cap at each
-    # bridge's high sides (power-pcb-layout §3: tight hot loops; power-circuit-design: Kelvin sense at the shunt).
+    "J201": (112.0, 106.5, 0, "F"),
+    "J301": (127.0, 154.0, 180, "F"),
+    "J601": (163.0, 155.2, 0, "F"),
+    "AE501": (171.0, 106.5, 0, "F"),
+    "U401": (165.0, 124.0, 180, "F"),
+    "U301": (137.0, 136.0, 180, "F"),
     "Q301": (127.5, 134.0, 0, "F"), "Q302": (127.5, 140.5, 0, "F"),
     "Q303": (121.5, 134.0, 0, "F"), "Q304": (121.5, 140.5, 0, "F"),
     "Q305": (115.5, 134.0, 0, "F"), "Q306": (115.5, 140.5, 0, "F"),
     "Q307": (109.5, 134.0, 0, "F"), "Q308": (109.5, 140.5, 0, "F"),
     "R301": (124.5, 145.8, 0, "F"), "R302": (112.5, 145.8, 0, "F"),
     "C306": (124.5, 129.5, 0, "F"), "C307": (112.5, 129.5, 0, "F"),
-    # The NTC measures the FETs, so it sits between the bridges. Its only signal net goes to the MCU, so the
-    # optimizer would put it there (it did: 0.4 mm from U401).
     "RT301": (118.5, 137.25, 90, "F"),
-    # 5 V buck between the bulk capacitor and the DRV8711, away from the bridges and the radio
     "U201": (146.0, 119.0, 0, "F"), "L201": (152.5, 119.0, 0, "F"),
-    # Input chain next to J201, in current order: fuse, TVS, bulk; the reverse-polarity FET in the return leg.
-    # Its nets are pours, which the optimizer leaves out of the ratsnest, so it would scatter them.
     "F201": (125.5, 104.0, 0, "F"), "D201": (125.5, 109.0, 0, "F"), "C201": (138.0, 108.0, 0, "F"),
     "C202": (146.5, 108.0, 90, "F"),
     "Q201": (117.0, 116.5, 0, "F"), "D202": (111.5, 116.5, 0, "F"), "R201": (111.5, 119.5, 0, "F"),
@@ -60,8 +50,8 @@ ANCHORS = {
     "H603": (176.0, 156.0, 0, "F"), "H604": (176.0, 114.0, 0, "F"),
     "FID601": (104.0, 128.0, 0, "F"), "FID602": (150.0, 104.0, 0, "F"), "FID603": (176.0, 140.0, 0, "F"),
 }
-ANTENNA_KEEPOUT = (157.0, 100.0, 168.6, 110.0)      # x0, y0, x1, y1: no copper fill, tracks or vias, any layer
-ANTENNA_NO_PARTS = (155.0, 107.5, 170.0, 111.0)     # below the antenna: no footprints (pcb-placement §1)
+ANTENNA_KEEPOUT = (157.0, 100.0, 168.6, 110.0)
+ANTENNA_NO_PARTS = (155.0, 107.5, 170.0, 111.0)
 POUR_CLASSES = re.compile(r"^(PWR|GND)_(\d+(?:[.p]\d+)?)A")
 PARK_X = X0 + W + 10.0
 
@@ -290,7 +280,7 @@ def strip_zones(path):
                 if depth == 0:
                     break
             k += 1
-        i = k + 2            # past the block's ")" and its newline; the search starts one back, at that newline
+        i = k + 2
     out.append(text[i:])
     path.write_text("".join(out), encoding="utf-8")
 

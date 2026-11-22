@@ -26,7 +26,7 @@ def build(project, values):
     if PINMAP.exists():
         sh.assign_pins(u, load_pinmap(PINMAP))
     sh.nc_unused(u, r"^P[A-Z][0-9]+$")
-    sh.flag("SMPS_LX", (180.34, 132.08))     # VLXSMPS is the SMPS output, typed power input in KiCad's symbol
+    sh.flag("SMPS_LX", (180.34, 132.08))
 
     row(sh, "C", 30.48, 172.72, [
         ("C401", "4.7u", "+3V3", "GND"), ("C402", "100n", "+3V3", "GND"), ("C403", "100n", "+3V3", "GND"),

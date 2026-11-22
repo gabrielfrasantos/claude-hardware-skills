@@ -9,7 +9,6 @@ def build(project, values):
     sh.desc = ["24 V input: fuse, reverse-polarity N-FET, TVS, bulk", "LMR36510 buck to 5 V, OR-ed with USB VBUS",
                "AP2112K LDO to 3.3 V", "VM sense divider for the ADC"]
 
-    # --- input protection -------------------------------------------------------------------------------------
     sh.box(15.24, 15.24, 200.66, 135.89, "Input protection and motor supply (VM)")
     j = sh.part("Connector:Screw_Terminal_01x02", "J201", "24V IN", (30.48, 60.96),
                 fp="TerminalBlock_Phoenix:TerminalBlock_Phoenix_MKDS-1,5-2-5.08_1x02_P5.08mm_Horizontal",
@@ -47,7 +46,6 @@ def build(project, values):
         "VM_SENSE = VM * 10k / 110k: 30 V -> 2.73 V, under VDDA 3.3 V (derived). C203 with R202||R203 = 9.1 kohm: fc 175 Hz.",
     ])
 
-    # --- 5 V buck -----------------------------------------------------------------------------------------------
     sh.box(210.82, 15.24, 405.13, 135.89, "5 V buck (LMR36510, SNVSBD7B 8.2 Design 1)")
     u = sh.part("Regulator_Switching:LMR36510ADDA", "U201", "LMR36510ADDA", (271.78, 60.96),
                 fp="Package_SO:Texas_HTSOP-8-1EP_3.9x4.9mm_P1.27mm_EP2.95x4.9mm_Mask2.4x3.1mm_ThermalVias",
@@ -79,7 +77,6 @@ def build(project, values):
         "ASSUMPTION: L201 Isat >= 1 A (SWPA4030).",
     ])
 
-    # --- 3.3 V LDO ----------------------------------------------------------------------------------------------
     sh.box(15.24, 146.05, 200.66, 280.67, "3.3 V LDO (AP2112K-3.3)")
     ldo = sh.part("Regulator_Linear:AP2112K-3.3", "U202", "AP2112K-3.3", (76.2, 190.5),
                   fp="Package_TO_SOT_SMD:SOT-23-5", lcsc="C51118", mpn="AP2112K-3.3TRG1")

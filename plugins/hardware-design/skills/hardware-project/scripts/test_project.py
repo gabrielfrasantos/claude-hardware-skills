@@ -105,7 +105,6 @@ class Stock(unittest.TestCase):
         self.assertEqual(pc("Package_SO:SSOP-8_2.95x2.8mm_P0.65mm", "SOIC-8")[0], "mismatch")
 
     def test_vendor_names_for_sot23(self):
-        # Diodes Inc's SOT25 / SOT26 are the 5- and 6-lead SOT-23 (AP2112K-3.3TRG1, LCSC C51118: "SOT-25-5")
         pc = jlc_stock.package_check
         self.assertEqual(pc("Package_TO_SOT_SMD:SOT-23-5", "SOT-25-5")[0], "ok")
         self.assertEqual(pc("Package_TO_SOT_SMD:SOT-23-6", "SOT-26")[0], "ok")

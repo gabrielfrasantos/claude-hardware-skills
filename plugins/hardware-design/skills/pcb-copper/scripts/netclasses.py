@@ -136,7 +136,7 @@ def spec(name, design, outer_mm, inner_mm, dt):
         outer = max(design["track"], width_mm(p["amps"], dt, outer_mm))
         s["track_width"] = round(outer, 3)
         s["inner_width"] = round(max(design["track"], width_mm(p["amps"], dt, inner_mm)), 3)
-        s["pour"] = outer >= width_mm(POUR_AMPS_1OZ, dt, OZ_MM) - 1e-9      # unrounded: exactly 3 A on 1 oz is a pour
+        s["pour"] = outer >= width_mm(POUR_AMPS_1OZ, dt, OZ_MM) - 1e-9
     else:
         s["track_width"] = s["inner_width"] = design["track"]
     return s
@@ -214,7 +214,7 @@ _SHEET = re.compile(r'\(sheet\s.*?\(property\s+"Sheetname"\s+"((?:[^"\\]|\\.)*)"
 _LABEL = re.compile(r'\((label|global_label|hierarchical_label)\s+"((?:[^"\\]|\\.)*)".*?\(at\s+([-\d.]+)\s+([-\d.]+)',
                     re.S)
 _FLAG = re.compile(r'\(netclass_flag\s.*?\(at\s+([-\d.]+)\s+([-\d.]+).*?\(property\s+"Net ?[Cc]lass"\s+'
-                   r'"((?:[^"\\]|\\.)*)"', re.S)          # "Net Class" as schgen writes it, "Netclass" once KiCad saved it
+                   r'"((?:[^"\\]|\\.)*)"', re.S)
 
 
 def _blocks(text, head):

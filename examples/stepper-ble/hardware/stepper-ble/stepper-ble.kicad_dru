@@ -24,9 +24,6 @@
   (constraint track_angle (min 135)))
 # END pcb_rules managed block
 
-# Project rules (docs/decisions.md D-005). Pads inside one fine-pitch footprint can't meet the 30 V classes'
-# 0.25 mm (IPC-2221C A7) or the 0.15 mm design value: the vendor's land pattern sets their gap. Both stay above
-# JLCPCB's 0.09 mm floor, which pcb_rules check still enforces. Pad to pad within the footprint only.
 (rule "D-005: DRV8711 pad to pad (0.5 mm pitch, 0.20 mm gap)"
   (condition "A.Type == 'Pad' && B.Type == 'Pad' && A.memberOfFootprint('U301') && B.memberOfFootprint('U301')")
   (constraint clearance (min 0.18mm)))

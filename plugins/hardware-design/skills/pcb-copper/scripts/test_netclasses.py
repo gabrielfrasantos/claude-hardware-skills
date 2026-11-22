@@ -85,7 +85,7 @@ class Sizing(unittest.TestCase):
         self.assertEqual(N.clearance_for(120), 0.80)
         self.assertEqual(N.clearance_for(12), 0.13)
         self.assertFalse(N.spec("PWR_1A", design, 0.035, 0.0152, 10)["pour"])
-        self.assertTrue(N.spec("PWR_3A", design, 0.035, 0.0152, 10)["pour"])   # at 3 A itself, not only above
+        self.assertTrue(N.spec("PWR_3A", design, 0.035, 0.0152, 10)["pour"])
         self.assertEqual(N.spec("SIGNAL", design, 0.035, 0.0152, 10)["track_width"], 0.15)
         with self.assertRaises(SystemExit):
             N.spec("PWR_1A_600V", design, 0.035, 0.0152, 10)
@@ -134,7 +134,7 @@ class Assign(unittest.TestCase):
             self.assertEqual(N.main(["assign", pro]), 0)
         got = json.load(open(pro))["net_settings"]["netclass_assignments"]
         self.assertEqual(got, {"/TOP": ["SIGNAL"], "VM": ["PWR_3A_30V"], "/2 Power/BUCK_FB": ["SIGNAL"],
-                               "/2 Power/A{slash}B": ["ANALOG"]})            # global as is, local with sheet path
+                               "/2 Power/A{slash}B": ["ANALOG"]})
         self.assertIn("not on a label, left to KiCad: CLK", out.getvalue())
 
 

@@ -18,7 +18,10 @@ Also run by `place.py gate`. Checks, from the board file alone:
                      and ICs (U*) outside their most common one: inspection is easier when they agree
   unclassified       parts whose package is not in the spacing table (listed, not checked)
 
-The profile is pcb-design-rules/profiles/assembly/<name>.json, with its sources.
+The profile is pcb-design-rules/profiles/assembly/<name>.json, with its sources. A project with its own documented
+spacing rule overrides the table with <board>.assembly.json next to the board:
+    {"source": "D-052: 0.5 mm, JLC T&C IPC-7351B medium density", "spacing_cap_mm": 0.5, "spacing_mm": {"0603|QFN": 0.4}}
+spacing_cap_mm caps every pair at that value; spacing_mm sets single pairs (after the cap). Findings name the source.
 """
 import argparse
 import json
@@ -204,8 +207,24 @@ def orientation(parts):
     return out
 
 
+def project_override(path, prof):
+    """The profile with <board>.assembly.json applied, if the project has one."""
+    over = os.path.splitext(path)[0] + ".assembly.json"
+    prof = dict(prof, spacing_source=f"{prof['name']} profile, {prof['sources'][0]}")
+    if not os.path.exists(over):
+        return prof
+    with open(over) as f:
+        o = json.load(f)
+    table = dict(prof["spacing_mm"])
+    if "spacing_cap_mm" in o:
+        table = {k: min(v, o["spacing_cap_mm"]) for k, v in table.items()}
+    table.update(o.get("spacing_mm") or {})
+    src = o.get("source") or os.path.basename(over)
+    return dict(prof, spacing_mm=table, spacing_source=f"project rule: {src} ({os.path.basename(over)})")
+
+
 def check(path, profile_name="jlcpcb"):
-    prof = load_profile(profile_name)
+    prof = project_override(path, load_profile(profile_name))
     parts, outline = parts_of(path)
     sp, sp_ex = spacing(parts, prof["spacing_mm"])
     ek = edge_keepout(parts, outline, prof["edge_keepout_mm"])
@@ -219,7 +238,7 @@ def check(path, profile_name="jlcpcb"):
 
 
 def report(m, detail, prof):
-    lines = [f"## Assembly ({prof['name']}, checked {prof['fetched']})", "",
+    lines = [f"## Assembly ({prof['name']}, checked {prof['fetched']}; spacing: {prof['spacing_source']})", "",
              "| Check | Value | Kind |", "|---|---|---|",
              f"| assembly_spacing | {m['assembly_spacing']} | hard with --enforce |",
              f"| decoupling exceptions (cap at its IC, closer than the table) | {len(detail['decoupling_exceptions'])} | info |",
@@ -260,7 +279,7 @@ def main(argv=None):
     print(report(m, detail, prof))
     if a.json:
         with open(a.json, "w") as f:
-            json.dump(dict(metrics=m, detail=detail), f, indent=2, default=str)
+            json.dump(dict(metrics=m, detail=detail, spacing_source=prof["spacing_source"]), f, indent=2, default=str)
     return 0
 
 

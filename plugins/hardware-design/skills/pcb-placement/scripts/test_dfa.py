@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Self-test for dfa.py (assembly checks). Run: python3 test_dfa.py (no KiCad needed)."""
+import json
 import os
 import sys
 import tempfile
@@ -63,6 +64,19 @@ class Checks(unittest.TestCase):
         self.assertEqual(m["assembly_spacing"], 1)
         far = board(chip("C1", "0402", 10, 10), chip("C2", "0402", 10, 10.7))
         self.assertEqual(dfa.check(far)[0]["assembly_spacing"], 0)
+
+    def test_project_spacing_override(self):
+        # an 0603 next to a QFN (not decoupling it), pads 0.55 mm apart: JLCPCB's table asks 1.0 mm; a project rule of 0.5 mm
+        # (<board>.assembly.json) caps the table, and the finding names the source
+        path = board(qfn("U1", 10, 10, nets=("VDD", "IO")), chip("R1", "0603", 6.9, 10, nets=("X", "Y")))
+        m, d, prof = dfa.check(path)
+        self.assertEqual(m["assembly_spacing"], 1)
+        self.assertIn("jlcpcb profile", prof["spacing_source"])
+        with open(path[:-len(".kicad_pcb")] + ".assembly.json", "w") as f:
+            json.dump({"source": "D-052", "spacing_cap_mm": 0.5}, f)
+        m, d, prof = dfa.check(path)
+        self.assertEqual(m["assembly_spacing"], 0)
+        self.assertIn("project rule: D-052", prof["spacing_source"])
 
     def test_decoupling_next_to_its_ic_is_an_exception(self):
         b = board(qfn("U1", 20, 15), chip("C1", "0402", 17.6, 15, nets=("VDD", "GND")),     # its decoupling cap

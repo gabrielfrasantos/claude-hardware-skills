@@ -11,7 +11,8 @@ BLOCKER (respin or damage), MAJOR (likely malfunction), MINOR (margin, DFM), NOT
   ratings          capacitors rated below the voltage across them (and class-II MLCCs below 2x, a screening default);
                    TVS diodes whose standoff is below their net's voltage
   orientation      diodes and polarized capacitors forward-biased or reversed across a supply
-  connector_esd    connector pins on nets with no ESD or TVS part
+  connector_esd    connector pins on nets with no ESD or TVS part, directly or through series parts (fuses, ferrites,
+                   inductors, FET drain-source paths, up to SERIES_HOPS); half-bridge outputs count as clamped
   dividers         a resistor divider whose output, into an IC pin, exceeds that IC's supply
   test_points      supply and ground nets with no test point
   unknown          supply-like nets whose voltage is unknown (the voltage checks skip them)
@@ -30,6 +31,8 @@ TVS_PN = re.compile(r"\bSM[ABCDLF]?J?(\d+(?:\.\d+)?)(C?)A\b|\b(?:P6|1\.5)KE?(\d+
 I2C = re.compile(r"(^|[_\-])I2C\d*[_\-]?(SCL|SDA)\b|(^|[_\-])(SCL|SDA)\d*($|[_\-])", re.I)
 SWITCH_NODE = re.compile(r"LX|(^|_)(SW|PH|PHASE)\d*($|_)", re.I)   # converter switch nodes: no decoupling there
 POLARIZED_CAP = re.compile(r"CP_|C_Polarized|CP$|Elec|Tantal", re.I)
+FET_DS = re.compile(r"^(D|S|DRAIN|SOURCE)(\b|_|\d)", re.I)     # a FET's drain / source pins (not the gate)
+SERIES_HOPS = 4      # a TVS behind a fuse and back-to-back reverse-polarity FETs still protects the connector
 
 
 def f(check, severity, anchor, message, rule):
@@ -216,16 +219,53 @@ def orientation(d):
     return out
 
 
+def _series_links(d):
+    """net -> nets reached through one series part: a fuse, ferrite or inductor (two pins), or a FET's drain-source
+    path. These pass a surge through to the TVS on the far side, so they don't isolate a connector from it."""
+    links = {}
+    for ref, part in d.parts.items():
+        if part["dnp"]:
+            continue
+        kind = d.kind(ref)
+        if kind in ("F", "FB", "L"):
+            nets = [p["net"] for p in part["pins"].values() if p["net"]]
+        elif kind == "Q":
+            nets = [p["net"] for p in part["pins"].values() if p["net"] and FET_DS.match(p["name"] or "")]
+        else:
+            continue
+        nets = [n for n in set(nets) if not D.is_ground(n)]
+        for a in nets:
+            links.setdefault(a, set()).update(n for n in nets if n != a)
+    return links
+
+
+def _half_bridge_outputs(d):
+    """Nets on one FET's source and another FET pin's drain (a half-bridge midpoint): the body diodes clamp them to
+    the rail and ground, so a motor or coil terminal there needs no separate ESD part."""
+    out = set()
+    for net, pins in d.nets.items():
+        names = [(p["ref"], (p["name"] or "").upper()) for p in pins if d.kind(p["ref"]) == "Q"]
+        if any(n.startswith("S") for _, n in names) and any(n.startswith("D") for _, n in names):
+            out.add(net)
+    return out
+
+
 def connector_esd(d):
     out = []
-    protected = {n for n, pins in d.nets.items()
-                 if any(ESD_PART.search(d.parts[p["ref"]]["value"] + " " + d.parts[p["ref"]]["lib_id"] + " "
-                                        + d.parts[p["ref"]]["fields"].get("MPN", "")) for p in pins)}
+    direct = {n for n, pins in d.nets.items()
+              if any(ESD_PART.search(d.parts[p["ref"]]["value"] + " " + d.parts[p["ref"]]["lib_id"] + " "
+                                     + d.parts[p["ref"]]["fields"].get("MPN", "")) for p in pins)}
+    links = _series_links(d)
+    protected, frontier = set(direct), set(direct)
+    for _ in range(SERIES_HOPS):
+        frontier = {m for n in frontier for m in links.get(n, ())} - protected
+        protected |= frontier
+    clamped = _half_bridge_outputs(d)
     for ref, part in sorted(d.parts.items()):
         if d.kind(ref) not in ("J", "P", "CN", "USB", "X") or part["dnp"] or d.kind(ref) == "X" and "conn" not in part["footprint"].lower():
             continue
         bare = sorted({D.base(p["net"]) for p in part["pins"].values()
-                       if p["net"] and not D.is_ground(p["net"]) and p["net"] not in protected})
+                       if p["net"] and not D.is_ground(p["net"]) and p["net"] not in protected | clamped})
         if bare:
             out.append(f("connector_esd", "MINOR", ref,
                          f"{ref} ({part['value']}): {len(bare)} net(s) leave the board with no ESD/TVS part: "

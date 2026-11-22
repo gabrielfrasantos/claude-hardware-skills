@@ -124,9 +124,13 @@ python3 evals/review_defects.py score work/rd/manifest.json --report agent-revie
 - divider over range.
 
 It runs the scripted checks on the clean board and the seeded one. `score` grades any review against the planted
-defects, including the agent's markdown report.
+defects, including the agent's markdown report. A defect counts only when a finding of the expected check (in a
+report: a line in that check's terms, e.g. "decoupling" or "pull-up") names the part or net; naming the part for
+another reason earns nothing. In `run`, a finding the clean board already has earns nothing either, and findings
+that are new on the seeded board but match no defect are listed as unexpected, for triage. The result lists the
+kinds this board had a target for.
 
-Measured 2026-11-20:
+Measured 2026-11-20 (scored with the earlier rule, which credited any finding that named the part):
 
 | Board | Seeded | Found by the scripts | Clean board: findings at MINOR or above |
 |---|---|---|---|

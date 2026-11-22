@@ -64,7 +64,7 @@ jobs:
         working-directory: examples/stepper-ble
         env:
           HW: ../../plugins/hardware-design/skills
-          PY: ../../.venv/bin/python
+          PY: ${{ github.workspace }}/.venv/bin/python
         run: |
           $PY scripts/make_library.py
           $PY $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py
@@ -74,7 +74,7 @@ jobs:
         working-directory: examples/stepper-ble
         env:
           HW: ../../plugins/hardware-design/skills
-          PY: ../../.venv/bin/python
+          PY: ${{ github.workspace }}/.venv/bin/python
           B: hardware/stepper-ble/stepper-ble.kicad_pcb
         run: |
           $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2

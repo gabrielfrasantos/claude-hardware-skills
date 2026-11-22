@@ -203,9 +203,10 @@ def load(board_path, ref, needs_path, pin_data=None, allow_reserved=False):
             pads[p["num"]] = dict(pins[p["num"]], num=p["num"], x=p["x"], y=p["y"], net=base(p["net"]),
                                   side=side_of(p["x"] - mcu["x"], p["y"] - mcu["y"]))
     exact = {alt for x in needs for alt in x["spec"] if IO.match(alt)}
+    asked = {alt for x in needs for alt in x["spec"] if RESERVED.search(alt)}      # e.g. SYS_JTMS-SWDIO, BOOT0
     free = [p for p in pads.values() if (not p["net"] or p["net"].startswith("unconnected-") or p["net"] in nets)
             and (IO.match(p["name"]) or p["alternates"])
-            and (allow_reserved or not reserved(p) or p["name"] in exact)]
+            and (allow_reserved or not reserved(p) or p["name"] in exact or asked & {p["name"], *p["alternates"]})]
     pts = {}
     for f in b.footprints:
         if f["ref"] == ref:

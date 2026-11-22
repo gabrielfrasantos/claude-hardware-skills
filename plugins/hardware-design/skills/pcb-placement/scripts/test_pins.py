@@ -120,6 +120,10 @@ class Pins(unittest.TestCase):
         self.assertNotIn(self.assigned()["LED"][0], ("PA1", "PH3-BOOT0"))   # PA1 is nearest, but carries SWDIO
         code, out = self.run_cmd("assign", b, "LED PA1\n")                   # named exactly: allowed
         self.assertEqual((code, self.assigned()["LED"][0]), (0, "PA1"), out)
+        code, out = self.run_cmd("assign", b, "SWDIO SYS_JTMS-SWDIO\nLED GPIO\n")   # the debug function itself: allowed
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.assigned()["SWDIO"][0], "PA1")
+        self.assertNotIn(self.assigned()["LED"][0], ("PA1", "PH3-BOOT0"))
 
     def test_net_on_two_pins(self):
         b = self.board({"1": "IRQ", "3": "IRQ", "8": "VDD"})

@@ -1,7 +1,7 @@
 name: ci
 
-# Runs every skill's self-tests (no KiCad needed: the tests use synthetic KiCad 10 files) and validates the
-# plugin and marketplace manifests. Third-party actions are pinned to a full commit SHA, with the version in a
+# Runs every skill's self-tests (no KiCad needed: the tests use synthetic KiCad 10 files), validates the
+# plugin and marketplace manifests, and runs the tools on the example board with real KiCad 10 (example-board). Third-party actions are pinned to a full commit SHA, with the version in a
 # trailing comment.
 
 on:
@@ -25,7 +25,7 @@ jobs:
       - name: Run the tests
         run: .venv/bin/python -m pytest -q
       - name: Lint (pyflakes rules, via ruff)
-        run: .venv/bin/ruff check --select F plugins evals
+        run: .venv/bin/ruff check --select F plugins evals examples
 
   validate:
     name: Plugin manifest
@@ -36,3 +36,53 @@ jobs:
         run: npm install --global @anthropic-ai/claude-code
       - name: Validate the marketplace and plugin
         run: claude plugin validate .
+
+  example-board:
+    name: Example board (KiCad 10)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: ERC and DRC report (kicad-bot, installs KiCad 10)
+        uses: embedded-pro/kicad-bot@693908db94231f662dde94b19cf5d282210c3a93 # v0.1.5
+        with:
+          kicad-version: "10"
+          run-verify: "true"
+          project-dir: examples/stepper-ble/hardware/stepper-ble
+          fail-on-erc: "true"
+          # The example is placed, not routed (its D-011): kicad-bot counts unconnected items as DRC errors, so it
+          # reports DRC here and pcb_rules.py check --allow-unrouted gates it below.
+          fail-on-drc: "false"
+          pr-comment: "false"
+          artifact-name: example-board-kicad-bot
+      - name: KiCad libraries and Python
+        run: |
+          sudo apt-get install --yes --no-install-recommends kicad-symbols kicad-footprints
+          mkdir -p ~/.config/kicad/10.0
+          cp /usr/share/kicad/template/sym-lib-table /usr/share/kicad/template/fp-lib-table ~/.config/kicad/10.0/
+          /usr/bin/python3 -m venv --system-site-packages .venv          # system Python: KiCad's pcbnew module
+          .venv/bin/pip install --quiet -r requirements.txt
+          kicad-cli version
+      - name: Rebuild the schematic from its source; same circuit as committed
+        working-directory: examples/stepper-ble
+        env:
+          HW: ../../plugins/hardware-design/skills
+          PY: ../../.venv/bin/python
+        run: |
+          $PY scripts/make_library.py
+          $PY $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py
+          $PY $HW/schematic-capture/scripts/schgen.py check scripts/schgen/config.py
+          $PY $HW/schematic-capture/scripts/schgen.py equivalence scripts/schgen/config.py HEAD
+      - name: Gates (the example's README lists them)
+        working-directory: examples/stepper-ble
+        env:
+          HW: ../../plugins/hardware-design/skills
+          PY: ../../.venv/bin/python
+          B: hardware/stepper-ble/stepper-ble.kicad_pcb
+        run: |
+          $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2
+          $PY $HW/pcb-copper/scripts/netclasses.py check $B
+          $PY $HW/pcb-placement/scripts/place.py gate $B --enforce --baseline hardware/stepper-ble/placement-baseline.json
+          $PY $HW/pcb-placement/scripts/pins.py check $B --mcu U401 --needs pin-data/pin-needs.txt
+          $PY $HW/schematic-capture/scripts/library_check.py $B
+          $PY $HW/hardware-project/scripts/trace.py
+          $PY $HW/design-review/scripts/review.py hardware/stepper-ble --voltage VM=30 --voltage VIN_RAW=30 --out review

@@ -1,0 +1,4 @@
+(fp_lib_table
+	(version 7)
+	(lib (name "stepper-ble") (type "KiCad") (uri "${KIPRJMOD}/stepper-ble.pretty") (options "") (descr "project footprints"))
+)

@@ -197,9 +197,20 @@ owner and KiCad's router. **Owner decision.**
 | KiCad bug report | custom rule overrides the Board Setup minimum (`pcb-design-rules` §4), against the manual |
 | Altium schematics, KiCad < 10 boards in review | `design-review` §6 |
 | Board B's `Vdrive` voltage | 12 V was an assumption for the review eval |
+| Headless netlist to board | `kicad-cli` 10 has no *Update PCB from Schematic*; the example (`examples/stepper-ble/scripts/make_board.py`) uses `pcbnew`. A text-based equivalent in the plugin would close the headless flow (D22) |
+| Assembly spacing in the optimizer | `place.py optimize` avoids overlaps but not the assembler's package-pair spacing; on the example it put two 0402s 0.4 mm from the QFN, which only the gate caught |
+| kicad-bot on unrouted boards | it counts unconnected items as DRC errors; an "allow unrouted" option would let the example gate DRC there too |
 
 ### Decisions the owner owns in this plan
 
 A1–A3 (settings), C2 (class mapping), C4 (TI licence), D budget (D1 caps each run at the harness default of
 25 USD, so 3 runs × 2 configurations is at most 150 USD; D2/D3 are one review each), E (generation scope), and
 buying the IPC standards.
+
+### Public example board (2026-11-22)
+
+`examples/stepper-ble` replaces "trust the owner's boards" with a board anyone can open: designed with the plugin from
+scaffold to placed board, every gate run on it in CI with KiCad 10 (kicad-bot installs it). Building it fixed three
+tool defects: `netclasses.py` had no headless way to read the schematic's net-class directives (now `assign`), a
+class at exactly 3 A was not flagged as a pour (rounding), and `jlc_stock.py` reported Diodes Inc's SOT25 as a
+mismatch for SOT-23-5. It also found a KiCad library footprint below JLCPCB's annular ring (the example's D-006).

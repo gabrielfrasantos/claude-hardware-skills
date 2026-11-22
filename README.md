@@ -119,6 +119,14 @@ python3 $HW/hardware-project/scripts/export_jlcpcb.py
 The generated `AGENTS.md` (imported by `CLAUDE.md`) lists every command and which skill covers each part of the
 work.
 
+## Worked example
+
+[`examples/stepper-ble`](examples/stepper-ble/README.md) is a public board designed end to end with these skills: a
+24 V stepper driver (DRV8711, eight external FETs) with Bluetooth LE (STM32WB55CG, PCB antenna) on JLCPCB 4-layer.
+It has a schematic as code, the parts chosen from JLCPCB stock, the placement and MCU pin map, and every gate and the
+design review run on it. It is placed but not routed. CI rebuilds its schematic and runs every gate on it with
+KiCad 10 on each pull request, so the claims above can be checked on a board anyone can open.
+
 ## Requirements
 
 | For | Needs |
@@ -135,6 +143,9 @@ work.
   [`docs/research/best-practices-audit.md`](docs/research/best-practices-audit.md) audits the skills against
   primary sources and records what changed as a result.
 - **Tests.** Every script has self-tests. CI runs them, a lint and the plugin validator on every pull request.
+- **KiCad in CI.** The `example-board` job installs KiCad 10 with
+  [kicad-bot](https://github.com/embedded-pro/kicad-bot) (ERC and DRC), rebuilds the example's schematic, checks it is
+  the same circuit as the committed one, and runs every gate on the board.
 - **Real boards.** The tools were measured on real boards (a power supply, a 50 V motor driver and a
   battery-powered robot controller). Each skill says what was measured, on what kind of board, and what wasn't.
 - **Evals.** [`evals/`](evals/README.md) is a generic harness. It runs a board repo's own eval cases with and
@@ -151,6 +162,8 @@ Known limits:
   `pcb-design-rules/profiles/`.
 - The RF rules cover 2.4 GHz only.
 - No autorouting. Placement and pin assignment are automated; routing critical nets stays with the designer.
+- `kicad-cli` has no *Update PCB from Schematic*. The example board uses a short `pcbnew` script for that step; the
+  plugin itself has no headless equivalent yet.
 - Some IPC values are transcribed from secondary sources until the standards themselves are checked. Each skill
   marks which ones.
 

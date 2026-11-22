@@ -94,11 +94,11 @@ def parts_of(path):
     out = []
     for fp in R.children(root, "footprint"):
         ref = next((str(q[2]) for q in R.children(fp, "property") if len(q) > 2 and q[1] == "Reference"), "")
-        at = R.child(fp, "at")
+        fx, fy, frot = R.footprint_place(fp)
         lay = str(R.child(fp, "layer")[1])
         ps = pads.get(ref, [])
-        out.append(dict(ref=ref, lib=str(fp[1]), side=lay[0], x=float(at[1]), y=float(at[2]),
-                        rot=float(at[3]) if len(at) > 3 else 0.0, locked=R.is_locked(fp), pads=ps,
+        out.append(dict(ref=ref, lib=str(fp[1]), side=lay[0], x=fx, y=fy,
+                        rot=frot, locked=R.is_locked(fp), pads=ps,
                         smd=any(p["kind"] == "smd" for p in ps),
                         cls=package_class(str(fp[1]), len({p["num"] for p in ps if p["num"]}))))
     return out, G.Board(text=text).outline

@@ -120,11 +120,42 @@ class Parsing(unittest.TestCase):
         self.assertAlmostEqual(p["x"], 10)
         self.assertAlmostEqual(p["y"], 9)
 
+    def test_kicad11_transform(self):
+        k11 = ('(footprint "R" (layer "F.Cu") (transform (translate 10 10) (rotate 90) (scale 1 1)) '
+               '(property "Reference" "R1") (pad "1" smd rect (at 1 0 90) (size 1 1) (layers "F.Cu") (net "N")))\n')
+        b = board(k11)
+        self.assertAlmostEqual(b.pads[0]["x"], 10)
+        self.assertAlmostEqual(b.pads[0]["y"], 9)
+        with self.assertRaises(SystemExit):
+            pcb_rules.footprint_place(pcb_rules.parse_sexpr(k11.replace("(scale 1 1)", "(scale 2 1)")))
+
     def test_older_than_kicad10_is_refused(self):
         for version in ("20221018", "20241229"):          # KiCad 7, KiCad 9.0
             text = f'(kicad_pcb (version {version}) (layers (0 "F.Cu" signal)))'
             with self.assertRaises(SystemExit):
                 pcb_rules.Board(text=text)
+
+
+def via(x, y, net):
+    return f'(via (at {x} {y}) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "{net}"))\n'
+
+
+class NetIntegrity(unittest.TestCase):
+    def test_orphan_copper(self):
+        b = board(fp("R1", 0, 0, 0, [("1", 0, 0)], "VIN"), seg(0, 0, 5, 0, "VIN"), seg(5, 0, 9, 0, "OLD"), via(9, 0, "OLD"))
+        self.assertEqual(pcb_rules.net_integrity(b, "b.kicad_pcb")[:2], (["OLD"], None))
+
+    def test_via_net_changes_against_a_reference(self):
+        import tempfile
+        ref = HEAD + fp("R1", 0, 0, 0, [("1", 0, 0)], "A") + via(3, 3, "A") + via(4, 4, "A") + ")"
+        with tempfile.NamedTemporaryFile("w", suffix=".kicad_pcb", delete=False) as f:
+            f.write(ref)
+        b = board(fp("R1", 0, 0, 0, [("1", 0, 0), ("2", 1, 0)], "A"), via(3, 3, "A"), via(4, 4, "B"), via(8, 8, "A"))
+        b.pads[1]["net"] = "B"
+        orphans, moved, _ = pcb_rules.net_integrity(b, "b.kicad_pcb", f.name)
+        os.remove(f.name)
+        self.assertEqual(orphans, [])
+        self.assertEqual(moved, ["via at (4, 4): A -> B"])
 
 
 class Rules(unittest.TestCase):

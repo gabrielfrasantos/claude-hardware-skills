@@ -301,9 +301,7 @@ class PCB:
 
     def _footprint(self, s, e):
         fp = R.parse_sexpr(self.text[s:e])
-        at = R.child(fp, "at")
-        fx, fy = float(at[1]), float(at[2])
-        rot = float(at[3]) if len(at) > 3 else 0.0
+        fx, fy, rot = R.footprint_place(fp)
         ref = value = ""
         for p in R.children(fp, "property"):
             if len(p) > 2 and p[1] == "Reference":
@@ -810,6 +808,11 @@ def footprint_moved(ours, f, x, y, theta):
         if h == "at":
             new = f"(at {fmt(round(x, 6))} {fmt(round(y, 6))}" + (f" {fmt(theta)})" if theta else ")")
             edits.append((c["s"] - root["s"], c["e"] - root["s"], new))
+        elif h == "transform":
+            sub = text[c["s"] - root["s"]:c["e"] - root["s"]]
+            sub = re.sub(r"\(translate\s+[^()]*\)", f"(translate {fmt(round(x, 6))} {fmt(round(y, 6))})", sub)
+            sub = re.sub(r"\(rotate\s+[^()]*\)", f"(rotate {fmt(theta)})", sub)
+            edits.append((c["s"] - root["s"], c["e"] - root["s"], sub))
         elif h in ANGLE_PARENTS and d:
             sub = text[c["s"] - root["s"]:c["e"] - root["s"]]
             at = next((g for g in c["items"] if isinstance(g, dict) and head(g) == "at"), None)

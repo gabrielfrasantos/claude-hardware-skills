@@ -127,8 +127,8 @@ class Dsn(unittest.TestCase):
 class Import(unittest.TestCase):
     def test_new_tracks_and_vias_only(self):
         path = project()
-        n_s, n_v = RT.import_session(path, SES)
-        self.assertEqual((n_s, n_v), (2, 1))
+        r = RT.import_session(path, SES, chamfer_corners=False)
+        self.assertEqual((r["segments"], r["vias"]), (2, 1))
         b = RT.Board(path)
         segs = [(s[0], RT.child(s, "start")[1:], RT.child(s, "end")[1:], RT.child(s, "layer")[1])
                 for s in RT.children(b.root, "segment")]
@@ -136,7 +136,26 @@ class Import(unittest.TestCase):
         self.assertIn(("segment", ["20", "10.5"], ["20", "10"], "B.Cu"), segs)
         via = [v for v in RT.children(b.root, "via") if RT.child(v, "net")[1] == "B"][0]
         self.assertEqual((RT.child(via, "size")[1], RT.child(via, "drill")[1]), ("0.8", "0.4"))
-        self.assertEqual(RT.import_session(path, SES), (0, 0))
+        r = RT.import_session(path, SES, chamfer_corners=False)
+        self.assertEqual((r["segments"], r["vias"]), (0, 0))
+
+
+class Chamfer(unittest.TestCase):
+    CORNER = ('''(session board (routes (resolution um 10) (network_out (net A
+      (wire (path F.Cu 2500 100000 -50000 150000 -50000 150000 -100000)))'''
+              + '''(net C (wire (path F.Cu 2500 {x} -55000 {x} -60000))))))''')
+
+    def test_corner_chamfered_when_clear(self):
+        path = project()
+        r = RT.import_session(path, self.CORNER.format(x=100000))
+        self.assertEqual((r["chamfered"], r["chamfer_skipped"]), (1, 0))
+        segs = [(RT.child(s, "start")[1:], RT.child(s, "end")[1:]) for s in RT.children(RT.Board(path).root, "segment")]
+        self.assertIn((["14.7", "5"], ["15", "5.3"]), segs)
+
+    def test_corner_left_when_another_net_is_inside(self):
+        path = project()
+        r = RT.import_session(path, self.CORNER.format(x=147000))
+        self.assertEqual((r["chamfered"], r["chamfer_skipped"]), (0, 1))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ dsn     writes the board as a Specctra DSN, the format Freerouting reads (kicad-
         go in as fixed wiring, so the router keeps them. --nets / --skip-nets choose the nets to route; the pads
         of the others stay obstacles.
 import  adds the session's (.ses) new tracks and vias to the board; the tracks and vias already there are kept.
+        A right-angle corner between two new tracks becomes two 45-degree bends (0.3 mm chamfer) where the
+        chamfer clears other nets' copper by the larger of the two nets' class clearances (--no-chamfer: as
+        routed); Freerouting draws 90-degree corners even with 45-degree snapping.
 run     dsn, Freerouting (java -jar, no GUI), import. Then run pcb_rules.py apply (teardrops on the new vias),
         refill the zones and run the gates: the router knows clearances and widths, not the house style.
 fetch   downloads Freerouting's executable jar from Maven Central into ~/.cache/hardware-design/ and checks its
@@ -280,8 +283,7 @@ def export_dsn(b, keep=lambda n: True):
         if not ref:
             continue
         side = (child(fp, "layer") or [0, "F.Cu"])[1]
-        at = child(fp, "at")
-        fx, fy, frot = fnum(at[1]), fnum(at[2]), fnum(at[3]) if len(at) > 3 else 0.0
+        fx, fy, frot = R.footprint_place(fp)
         pads = children(fp, "pad")
         if side == "B.Cu" and pads:
             problems.append(f"{ref}: on the back side (not supported yet)")
@@ -411,13 +413,125 @@ def session_items(ses_text):
     return segs, vias
 
 
-def import_session(board_path, ses_text):
+CHAMFER_MM = 0.3
+CORNER_TOL = 1.0
+
+
+def _obstacles(rb, segs, vias, via_d):
+    """Copper of every item, indexed on a 1 mm grid: (net, layers, shape)."""
+    items = []
+    for s in rb.segments:
+        items.append((s["net"], {s["layer"]}, R.shape_seg(s["x1"], s["y1"], s["x2"], s["y2"], s["w"] / 2)))
+    for v in rb.vias:
+        items.append((v["net"], v["layers"], R.shape_point(v["x"], v["y"], v["d"] / 2)))
+    for p in rb.pads:
+        if p["kind"] != "np_thru_hole" and p["layers"]:
+            items.append((p["net"], p["layers"], R.pad_shape(p["x"], p["y"], p["rot"], p["w"], p["h"], p["shape"],
+                                                             p["rratio"])))
+    for layer, w, x1, y1, x2, y2, net in segs:
+        items.append((net, {layer}, R.shape_seg(x1, y1, x2, y2, w / 2)))
+    for name, x, y, net in vias:
+        items.append((net, set(rb.copper_layers), R.shape_point(x, y, via_d(name) / 2)))
+    grid = {}
+    for i, (_, _, sh) in enumerate(items):
+        x0, y0, x1, y1 = sh["bbox"]
+        for gx in range(int(math.floor(x0)), int(math.floor(x1)) + 1):
+            for gy in range(int(math.floor(y0)), int(math.floor(y1)) + 1):
+                grid.setdefault((gx, gy), []).append(i)
+    return items, grid
+
+
+def chamfer(segs, vias, rb, clearance_of, via_d):
+    """Turn 90-degree corners between two new tracks into two 45-degree bends where the chamfer stays clear of
+    other nets' copper by the larger of the two nets' clearances. Returns (segments, chamfered, skipped)."""
+    segs = [list(s) for s in segs]
+    pads = [R.pad_shape(p["x"], p["y"], p["rot"], p["w"], p["h"], p["shape"], p["rratio"])
+            for p in rb.pads if p["layers"]]
+    via_pts = {(round(x, 4), round(y, 4)) for _, x, y, _ in vias} | {(round(v["x"], 4), round(v["y"], 4)) for v in rb.vias}
+    ends = {}
+    for i, (layer, w, x1, y1, x2, y2, net) in enumerate(segs):
+        for k, (x, y) in enumerate(((x1, y1), (x2, y2))):
+            ends.setdefault((net, layer, round(x, 4), round(y, 4)), []).append((i, k))
+    items, grid = _obstacles(rb, segs, vias, via_d)
+    done = skipped = 0
+    for (net, layer, x, y), at in ends.items():
+        if len(at) != 2 or (x, y) in via_pts:
+            continue
+        pt = R.shape_point(x, y, 0)
+        if any(sh["bbox"][0] <= x <= sh["bbox"][2] and sh["bbox"][1] <= y <= sh["bbox"][3]
+               and R.shape_gap(pt, sh) <= 0 for sh in pads):
+            continue
+        (i, ki), (j, kj) = at
+        if i == j or abs(segs[i][1] - segs[j][1]) > 1e-6:
+            continue
+        far = []
+        for idx, k in ((i, ki), (j, kj)):
+            s = segs[idx]
+            fx, fy = (s[4], s[5]) if k == 0 else (s[2], s[3])
+            far.append((fx, fy, math.hypot(fx - x, fy - y)))
+        (ax, ay, la), (bx, by, lb) = far
+        if la < 1e-6 or lb < 1e-6:
+            continue
+        ua, ub = ((ax - x) / la, (ay - y) / la), ((bx - x) / lb, (by - y) / lb)
+        ang = math.degrees(math.acos(max(-1.0, min(1.0, ua[0] * ub[0] + ua[1] * ub[1]))))
+        if abs(ang - 90) > CORNER_TOL:
+            continue
+        w = segs[i][1]
+        c = min(CHAMFER_MM, 0.45 * la, 0.45 * lb)
+        p, q = (x + ua[0] * c, y + ua[1] * c), (x + ub[0] * c, y + ub[1] * c)
+        cand = R.shape_seg(p[0], p[1], q[0], q[1], w / 2)
+        ok = True
+        x0, y0, x1, y1 = cand["bbox"]
+        seen = set()
+        for gx in range(int(math.floor(x0 - 1)), int(math.floor(x1 + 1)) + 1):
+            for gy in range(int(math.floor(y0 - 1)), int(math.floor(y1 + 1)) + 1):
+                for n in grid.get((gx, gy), []):
+                    if n in seen:
+                        continue
+                    seen.add(n)
+                    onet, olayers, sh = items[n]
+                    if onet == net or layer not in olayers:
+                        continue
+                    if R.shape_gap(cand, sh) < max(clearance_of(net), clearance_of(onet)) - 1e-4:
+                        ok = False
+                        break
+                if not ok:
+                    break
+            if not ok:
+                break
+        if not ok:
+            skipped += 1
+            continue
+        for idx, k, pt in ((i, ki, p), (j, kj, q)):
+            if k == 0:
+                segs[idx][2], segs[idx][3] = pt
+            else:
+                segs[idx][4], segs[idx][5] = pt
+        segs.append([layer, w, p[0], p[1], q[0], q[1], net])
+        items.append((net, {layer}, cand))
+        done += 1
+    return [tuple(s) for s in segs], done, skipped
+
+
+def _via_size(name):
+    m = re.search(r"_([\d.]+):([\d.]+)_um", name)
+    return (float(m.group(1)) / UM, float(m.group(2)) / UM) if m else (0.6, 0.3)
+
+
+def import_session(board_path, ses_text, chamfer_corners=True):
     b = Board(board_path)
     have_s = {(child(s, "layer")[1], round(fnum(child(s, "start")[1]), 3), round(fnum(child(s, "start")[2]), 3),
                round(fnum(child(s, "end")[1]), 3), round(fnum(child(s, "end")[2]), 3)) for s in children(b.root, "segment")}
     have_s |= {(k[0], k[3], k[4], k[1], k[2]) for k in have_s}
     have_v = {(round(fnum(child(v, "at")[1]), 3), round(fnum(child(v, "at")[2]), 3)) for v in children(b.root, "via")}
     segs, vias = session_items(ses_text)
+    segs = [s for s in segs if (s[0], round(s[2], 3), round(s[3], 3), round(s[4], 3), round(s[5], 3)) not in have_s]
+    b.chamfered = b.chamfer_skipped = 0
+    if chamfer_corners and segs:
+        lookup, rules = b.classes()
+        segs, b.chamfered, b.chamfer_skipped = chamfer(segs, vias, R.Board(board_path),
+                                                       lambda n: rules[lookup(n)]["clearance"],
+                                                       lambda name: _via_size(name)[0])
     blocks, n_s, n_v = [], 0, 0
     for layer, w, x1, y1, x2, y2, net in segs:
         key = (layer, round(x1, 3), round(y1, 3), round(x2, 3), round(y2, 3))
@@ -434,8 +548,7 @@ def import_session(board_path, ses_text):
             continue
         have_v.add(key)
         n_v += 1
-        m = re.search(r"_([\d.]+):([\d.]+)_um", name)
-        d, drill = (float(m.group(1)) / UM, float(m.group(2)) / UM) if m else (0.6, 0.3)
+        d, drill = _via_size(name)
         lays = (b.copper[0], b.copper[-1])
         uid = uuid.uuid5(NS, f"via/{key}/{net}")
         blocks.append(f'\t(via\n\t\t(at {x:g} {y:g})\n\t\t(size {d:g})\n\t\t(drill {drill:g})\n'
@@ -446,7 +559,7 @@ def import_session(board_path, ses_text):
         text = text[:-1].rstrip() + "\n" + "\n".join(blocks) + "\n)\n"
         with open(board_path, "w", encoding="utf-8") as f:
             f.write(text)
-    return n_s, n_v
+    return dict(segments=n_s, vias=n_v, chamfered=b.chamfered, chamfer_skipped=b.chamfer_skipped)
 
 
 def _esc(s):
@@ -501,10 +614,16 @@ def cmd_dsn(a):
     return 0
 
 
+def summary(board, r):
+    return (f"{os.path.basename(board)}: added {r['segments']} track segments and {r['vias']} vias; "
+            f"{r['chamfered']} right-angle corners chamfered to 45 degrees"
+            + (f", {r['chamfer_skipped']} left (no room)" if r["chamfer_skipped"] else ""))
+
+
 def cmd_import(a):
     with open(a.ses, encoding="utf-8") as f:
-        n_s, n_v = import_session(a.board, f.read())
-    print(f"{os.path.basename(a.board)}: added {n_s} track segments and {n_v} vias")
+        r = import_session(a.board, f.read(), not a.no_chamfer)
+    print(summary(a.board, r))
     return 0
 
 
@@ -538,10 +657,10 @@ def cmd_run(a):
         print((r.stdout + r.stderr)[-1500:])
         sys.exit(f"Freerouting wrote no session (log: {log})")
     with open(ses, encoding="utf-8") as f:
-        n_s, n_v = import_session(a.board, f.read())
+        res = import_session(a.board, f.read(), not a.no_chamfer)
     unrouted = re.findall(r"(\d+) unrouted", r.stdout + r.stderr)
-    print(f"{os.path.basename(a.board)}: added {n_s} track segments and {n_v} vias"
-          + (f"; Freerouting reports {unrouted[-1]} unrouted" if unrouted else "") + f" (work files: {work})")
+    print(summary(a.board, res) + (f"; Freerouting reports {unrouted[-1]} unrouted" if unrouted else "")
+          + (f" (work files: {work})" if a.keep else ""))
     if not a.keep:
         shutil.rmtree(work, ignore_errors=True)
     return 0
@@ -561,6 +680,8 @@ def main(argv=None):
     for p in (d, r):
         p.add_argument("--nets", help="route only nets matching this regular expression")
         p.add_argument("--skip-nets", help="leave nets matching this regular expression unrouted")
+    for p in (i, r):
+        p.add_argument("--no-chamfer", action="store_true", help="keep the router's right-angle corners")
     r.add_argument("--passes", type=int, default=20)
     r.add_argument("--threads", type=int)
     r.add_argument("--timeout", type=int, default=3600)

@@ -71,6 +71,21 @@ Front-side footprints only for now: a footprint on the back stops `dsn` with an 
 | `orphan_copper_nets`, `via_net_changes` (`pcb_rules.py`) | copper on the wrong net after routing |
 | Freerouting's log (`--keep`) | connections left unrouted. Route them by hand, or add passes |
 
+### On the example (stepper-ble, 4 layers, 106 parts, 2026-11-22)
+
+Freerouting 2.5.0, all nets but none hand-routed (a stress test, not the workflow above):
+- **Result:** 850 track segments and 133 vias in about 7 minutes. 15 connections were left unrouted; 40 passes did no better than 3.
+- **Correct:**
+  - KiCad 10.0.8 DRC: 0 shorts, 0 clearance violations, 0 parity errors;
+  - every class's width held (`netclasses.py check`).
+- **Not the house style:**
+  - 28 mid-track junctions and 22 right-angle corners, most of them at pads, at vias or between widths. Only 6 corners were plain bends, and `import` chamfered those;
+  - 15 jogs, 2 acute corners;
+  - 133 vias without teardrops: fixed by re-running `pcb_rules.py apply`;
+  - 2 ground-plane splits from via clearances: plane stitching and via placement still need a person.
+
+**What to expect:** the router gives correct connectivity and clearance, not a finished layout. Budget hand tidying, or use it only for short signal nets.
+
 ## 4. Pitfalls
 
 - **The router routes what it's given.** A power net left in the DSN becomes a minimum-width track if its class has no width set. Put the classes in place first (`pcb-copper` `apply`), and skip what must be copper pours.

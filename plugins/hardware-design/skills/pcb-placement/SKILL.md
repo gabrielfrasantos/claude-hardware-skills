@@ -70,9 +70,9 @@ From the assembler's profile, `pcb-design-rules/profiles/assembly/<name>.json` (
 | `orientation_mixed` | soft | polarized parts (diodes, LEDs, polarized capacitors) outside their two most common orientations, and ICs outside their most common one: one orientation per class makes inspection easier [JLC-SMT] |
 | unclassified | info | parts whose package isn't in the table (connectors, SOD, electrolytics, custom lands): not spacing-checked |
 
-Measured 2026-11-20: on e-inverted-pendulum, 1 spacing violation (R701 0.68 mm from a QFN), 6 decoupling exceptions at the two QFNs, no fiducials, 14 orientation outliers; on e-foc, no spacing violation, no fiducials, 6 orientation outliers.
+Measured 2026-11-20: on a robot-controller board, 1 spacing violation (R701 0.68 mm from a QFN), 6 decoupling exceptions at the two QFNs, no fiducials, 14 orientation outliers; on a motor-driver board, no spacing violation, no fiducials, 6 orientation outliers.
 
-**Measured** on the e-inverted-pendulum board (161 parts parked, 84 anchors: connectors, holes, the three vendor copies; evals fixture), against the owner's placement:
+**Measured** on a real robot-controller board (161 parts parked, 84 anchors: connectors, holes, the three vendor copies; evals fixture), against the owner's placement:
 
 | | Ratsnest | Crossings | Decoupling p90 | Time |
 |---|---|---|---|---|
@@ -112,7 +112,7 @@ Hardware is hard to change and firmware is easy, so **the hardware picks the pin
 5. **Write it back:** connect the MCU pins in the schematic as the map says (with schgen, edit the design file), rebuild, *Update PCB from Schematic*, and log the pin-map freeze as a decision. Give `pinmap.txt` to the firmware.
 6. **Check** any assignment against the needs: `pins.py check board.kicad_pcb --mcu U301 --needs pin-needs.txt` exits 1 if a function sits on a pin without its signal, a group mixes instances, or a signal is on two pins.
 
-Measured on e-inverted-pendulum (37 functions, STM32WB55 VFQFPN68, 47 free I/O pads): `check` passes the board's pin map. With the needs stated as capabilities, `assign` finds a map with 1378 mm total distance against 1465 mm for the current one (−6 %), in under 2 s. The gain is small because that board was placed around its pins. The tool's value is on a new board, where the clusters are placed first.
+Measured on the same board (37 functions, STM32WB55 VFQFPN68, 47 free I/O pads): `check` passes the board's pin map. With the needs stated as capabilities, `assign` finds a map with 1378 mm total distance against 1465 mm for the current one (−6 %), in under 2 s. The gain is small because that board was placed around its pins. The tool's value is on a new board, where the clusters are placed first.
 
 **Limits:**
 - Distance is straight-line pad to cluster centroid. It does not order pins to avoid crossings within a bus.
@@ -132,7 +132,7 @@ Measured on e-inverted-pendulum (37 functions, STM32WB55 VFQFPN68, 47 free I/O p
 
 - docs/design.md D7, D15, D25 (working agreement, optimizer then refinement, report-only gate).
 - `power-pcb-layout` §1 (anchors), `pcb-design-rules` §5 (0.05 mm grid), `mcu-circuit-design` §2 (decoupling).
-- Measurements in §4 and §5: `place.py` and `pins.py` on embedded-pro/e-inverted-pendulum-hardware at 51a4bcf (the evals fixture for placement), 2026-11-20.
+- Measurements in §4 and §5: `place.py` and `pins.py` on the robot-controller board (the evals fixture for placement), 2026-11-20.
 - [JLC-SPACING] JLCPCB, *Minimum spacing for SMD components* (package-pair table). https://jlcpcb.com/help/article/minimum-spacing-for-smd-components
 - [JLC-RAILS] JLCPCB, *How to add edge rails/fiducials for PCB assembly order*. https://jlcpcb.com/help/article/how-to-add-edge-rails-fiducials-for-pcb-assembly-order
 - [JLC-SMT] JLCPCB, *Top 10 PCB Design Tips for High-Quality SMT Soldering* (orientation, edge keep-outs, thermal reliefs). https://jlcpcb.com/blog/pcb-design-tips-to-improve-smt-soldering-quality

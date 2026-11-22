@@ -45,7 +45,7 @@ BAD_LIFECYCLE = re.compile(r"NRND|EOL|OBSOLETE|LTB|LAST.TIME|DISCONTINU", re.I)
 def lookup(lcsc):
     body = json.dumps({"keyword": lcsc, "currentPage": 1, "pageSize": 5}).encode()
     request = urllib.request.Request(URL, data=body, headers={
-        "Content-Type": "application/json", "User-Agent": "claude-hardware-skills/jlc_stock"})
+        "Content-Type": "application/json", "User-Agent": "hardware-design-skills/jlc_stock"})
     for attempt in range(4):
         try:
             data = json.load(urllib.request.urlopen(request, timeout=30))

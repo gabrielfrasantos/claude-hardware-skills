@@ -105,5 +105,5 @@ Exit status 1 when a hard gate fails. `--gate NAME=LIMIT` overrides a limit; wri
 - [IPC-2221C-T] *(secondary)* pcb-toolkit, `spacing.rs`: a transcription of IPC-2221C Table 6-1. https://docs.rs/crate/pcb-toolkit/latest/source/src/spacing.rs
 - [IPC-2152] IPC-2152, *Standard for Determining Current-Carrying Capacity in Printed Board Design* (2009): Fig. 5-1, one chart for internal and external conductors; Appendix A, vias. Contents: https://www.electronics.org/TOC/IPC-2152.pdf
 - JLCPCB, *PCB Manufacturing Capabilities*: 18 µm average hole plating. https://jlcpcb.com/capabilities/PCB-capabilities
-- KiCad 10: net-class directive labels resolve to `netclass_assignments` in the `.kicad_pro` (read from the e-foc project, 2026-11-20).
+- KiCad 10: net-class directive labels resolve to `netclass_assignments` in the `.kicad_pro` (read from a KiCad 10 motor-driver project, 2026-11-20).
 - D9 and D21 in `docs/design.md`.

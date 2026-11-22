@@ -17,7 +17,7 @@ DRC-clean is the floor. A board is done when `check` passes.
 
 **Rules and house style.** The fab limits, shorts, clearance, acute angles and drilled-pad teardrops are manufacturing rules, each with a source. The other geometry gates encode the owner's **house style** for a clean, reviewable layout: octilinear tracks, 45° corners, branches on pads, no jogs, mostly horizontal and vertical runs with short diagonals. Neither IPC-2221C's contents nor JLCPCB's capabilities set a corner-angle rule [IPC-2221C][JLC-CAP]. They stay hard gates by the owner's choice; say "house style" when you report them, not "IPC" or "the fab".
 
-The script is `scripts/pcb_rules.py`, with the copper checks in `scripts/copper.py` (they need `pip install shapely scipy`; the rest is standard library). It reads and writes **KiCad 10 or later** files only: an older board is refused, so open and save it in KiCad 10 first. Fab data lives in `profiles/<fab>.json`, stack-up templates in `profiles/stackups.json`, each with source URLs and the date it was checked. If `scripts/` is not next to this file (e.g., the skill was installed as a single SKILL.md), get both folders from github.com/gabrielfrasantos/claude-hardware-skills, path `plugins/hardware-design/skills/pcb-design-rules/`.
+The script is `scripts/pcb_rules.py`, with the copper checks in `scripts/copper.py` (they need `pip install shapely scipy`; the rest is standard library). It reads and writes **KiCad 10 or later** files only: an older board is refused, so open and save it in KiCad 10 first. Fab data lives in `profiles/<fab>.json`, stack-up templates in `profiles/stackups.json`, each with source URLs and the date it was checked. If `scripts/` is not next to this file (e.g., the skill was installed as a single SKILL.md), get both folders from github.com/gabrielfrasantos/hardware-design-skills, path `plugins/hardware-design/skills/pcb-design-rules/`.
 
 ## 1. Workflow with the user
 
@@ -73,7 +73,7 @@ python3 scripts/test_pcb_rules.py && python3 scripts/test_copper.py   # self-tes
 2. It runs DRC with zones refilled, schematic parity, and `--all-track-errors` (otherwise KiCad reports only the first error on each track, so a short can hide behind another violation).
 3. **Fab floor:** a second DRC run with only the fab's absolute minimums as rules (clearance, track width, hole to copper, hole to hole, copper to edge, drill, via annular ring). It catches copper below what the fab can etch even when a custom rule or net class allows it. It runs when `apply` recorded a fab in the rules file, or with `--fab`. It is skipped with `--no-floor`.
 
-Without KiCad (`--no-drc`), the script checks copper itself: tracks, arcs, vias and pads of different nets on a shared layer. Touching copper is a short; a gap below the fab minimum is a violation. Round, oval and rounded-rectangle pads are exact; other pads use their rectangle. Zones, net-class clearances and custom-shaped pads need KiCad. On the e-psu board, at a 0.2 mm limit, it flagged the same 32 net pairs as KiCad 10.0.6 DRC.
+Without KiCad (`--no-drc`), the script checks copper itself: tracks, arcs, vias and pads of different nets on a shared layer. Touching copper is a short; a gap below the fab minimum is a violation. Round, oval and rounded-rectangle pads are exact; other pads use their rectangle. Zones, net-class clearances and custom-shaped pads need KiCad. On a real power-supply board, at a 0.2 mm limit, it flagged the same 32 net pairs as KiCad 10.0.6 DRC.
 
 ### 2.3 Gates
 
@@ -100,7 +100,7 @@ The report lists every short and clearance violation with item descriptions and 
 
 Copper gates (§2.4) are in the same table: `teardrops_disabled`, `zone_unfilled`, `zone_islands`, `zone_necks`, `gnd_plane_splits` and `unstitched_ground` are hard; `teardrops_disabled_smd`, `teardrops_missing`, `gnd_via_max_distance_mm` and `signal_over_plane_gap_mm` are soft.
 
-The two diagonal gates are calibrated on the owner's boards, which predate the instruction: e-foc is 30.5 % diagonal with 180 diagonals over 2 mm, e-inverted-pendulum 34.3 % with 137 (2026-11-20). Expect warnings on escapes from rotated or fine-pitch parts and on copied vendor blocks (`reference-block`); fix the rest.
+The two diagonal gates are calibrated on the owner's boards, which predate the instruction: a motor driver is 30.5 % diagonal with 180 diagonals over 2 mm, a robot controller 34.3 % with 137 (2026-11-20). Expect warnings on escapes from rotated or fine-pitch parts and on copied vendor blocks (`reference-block`); fix the rest.
 
 Override a geometry gate only for a stated reason, for example a footprint rotated 30° whose pads force off-grid escapes: `--gate any_angle_segments=4`. Write the reason in the PR. Never override `shorts`, `clearance_violations` or `below_fab_minimum`; fix the copper.
 
@@ -124,14 +124,14 @@ Measured from the zone fills. With KiCad, `check` refills the zones on its proje
 The report lists examples with coordinates for each.
 
 ### 2.5 CI
-Run `check` on pull requests next to ERC/DRC. KiCad's PPA has per-version archives (`ppa:kicad/kicad-10.0-releases`, as used by embedded-pro/kicad-bot):
+Run `check` on pull requests next to ERC/DRC. KiCad's PPA has per-version archives (`ppa:kicad/kicad-10.0-releases`):
 ```yaml
 - run: |
     sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
     sudo apt-get update && sudo apt-get install --yes --no-install-recommends kicad-cli || sudo apt-get install --yes kicad
     pip install shapely scipy
 - uses: actions/checkout@<sha>   # pin the skills repo to a commit, like any action
-  with: {repository: gabrielfrasantos/claude-hardware-skills, ref: <sha>, path: .hw-skills}
+  with: {repository: gabrielfrasantos/hardware-design-skills, ref: <sha>, path: .hw-skills}
 - run: python3 .hw-skills/plugins/hardware-design/skills/pcb-design-rules/scripts/pcb_rules.py check
        hardware/board/board.kicad_pcb --report pcb-quality.md
 ```
@@ -252,5 +252,5 @@ A board that departs from its template (e.g. power pours on an inner layer you c
 - [JLC-STACK] JLCPCB, *PCB Stackup* FAQ (JLC04161H-7628 core thickness). https://jlcpcb.com/quote/pcbOrderFaq/PCB%20Stackup
 - [SPRAAR7J] TI, *High-Speed Interface Layout Guidelines*, SPRAAR7J (Feb 2023), §2.4 reference planes and Table 3-1 stack-ups: ti.com/lit/pdf/SPRAAR7.
 - [SN75LVCP600S] TI, SN75LVCP600S datasheet, §11.1 Layout Guidelines (4-layer stack-up).
-- KiCad 10 teardrop format: the per-pad and per-via `teardrops` block and the `(attr (teardrop (type padvia)))` zones, as KiCad 10.0 writes them (read from the e-foc board, 2026-11-20). `check`'s copper gates were run on the e-foc and e-inverted-pendulum boards; `apply`'s teardrop edit was not yet reopened in KiCad.
-- Measurements in §2.2 and §4: KiCad 10.0.6 `kicad-cli pcb drc` on the e-psu board, copies of it, and synthetic test boards, 2026-11-04.
+- KiCad 10 teardrop format: the per-pad and per-via `teardrops` block and the `(attr (teardrop (type padvia)))` zones, as KiCad 10.0 writes them (read from a real motor-driver board, 2026-11-20). `check`'s copper gates were run on a real motor-driver board and a real robot-controller board; `apply`'s teardrop edit was not yet reopened in KiCad.
+- Measurements in §2.2 and §4: KiCad 10.0.6 `kicad-cli pcb drc` on a real power-supply board, copies of it, and synthetic test boards, 2026-11-04.

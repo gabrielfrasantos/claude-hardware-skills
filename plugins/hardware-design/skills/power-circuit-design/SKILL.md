@@ -7,7 +7,7 @@ description: Design or review the schematic of power circuits (battery and DC-bu
 
 Use this skill when you choose the topology, parts and values of a board's power path and power stages, and when you review them. It covers the schematic side; the copper is in `power-pcb-layout`, the verification in `circuit-simulation`, and the current-sense amplifier chain in `analog-circuit-design`.
 
-It is distilled from two embedded-pro boards: e-foc, a three-phase FOC driver on a 50 V bus, and e-inverted-pendulum, a 3S LiPo robot with two H-bridges. Their parts appear only as labelled examples. **The datasheet of the part you use wins.** Values marked *(derived)* are arithmetic from cited formulas, and *rule of thumb* marks guidance without a primary source (§13 lists them).
+It is distilled from two real boards: a three-phase FOC driver on a 50 V bus, and a 3S LiPo robot with two H-bridges. Their parts appear only as labelled examples. **The datasheet of the part you use wins.** Values marked *(derived)* are arithmetic from cited formulas, and *rule of thumb* marks guidance without a primary source (§13 lists them).
 
 Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, thermal copper), `mcu-circuit-design` (logic rails, safe state of MCU pins, back-powering), `analog-circuit-design` (sense amplifier, ADC drive), `circuit-simulation` (S-checks below), `pcb-copper` (net classes from currents).
 
@@ -34,7 +34,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 - **Reverse polarity:** series diode, high-side P-FET or low-side N-FET, in order of rising efficiency; a FET drops only $I \cdot R_{DS(on)}$ [SLVA139]. An ideal-diode controller is the FET option with control.
 - **Regeneration decides the topology.**
   - A diode or an ideal-diode controller conducts one way only. Energy a decelerating, reversed or back-driven motor returns then has nowhere to go but the bulk capacitance, and the bus pumps (§9).
-  - **Back-to-back P-FETs** (common source) block a reversed source, switch the load and conduct both ways when on. Example: e-inverted-pendulum's AO4805.
+  - **Back-to-back P-FETs** (common source) block a reversed source, switch the load and conduct both ways when on. Example: AO4805 (dual P-FET) on a 3S LiPo input.
 - **Gate voltage at both ends of the input range:**
   - at $V_{min}$, the gate drive reaches the $R_{DS(on)}$ specification point;
   - at $V_{abs}$, it stays inside $V_{GS}$ absolute maximum, with a gate-source Zener as the transient backstop.
@@ -48,7 +48,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 - **Every part on the bus must survive the clamping voltage** $V_C$ at the expected pulse current, not only the standoff: regulator VIN, driver supply pin, bridge and power-path $V_{DS}$, capacitor ratings.
   - Example: SMBJ15A, $V_{RWM}$ 15 V, $V_C$ 24.4 V at its rated peak pulse current $I_{PP}$ (10/1000 µs waveform) [LF-SMBJ] (ratio about 1.6), against a 30 V lowest absolute maximum on the bus. At smaller currents $V_C$ is lower; at a longer or larger pulse than the rating, the part fails.
   - Read each TVS's own table; the ratio is a *rule of thumb* across families.
-- **A bus TVS does not protect the switching FETs from their own ringing.** With $V_{RWM}$ above the bus, $V_C$ usually lands above a tightly rated FET's $V_{(BR)DSS}$. The FET's margin against switching overshoot is held by the commutation loop and the HF bypass (`power-pcb-layout` §3.1), the gate drive (§8) and, if needed, a snubber (§12). Example: e-foc's 50 V bus, 60 V FETs and a 51 V-standoff TVS.
+- **A bus TVS does not protect the switching FETs from their own ringing.** With $V_{RWM}$ above the bus, $V_C$ usually lands above a tightly rated FET's $V_{(BR)DSS}$. The FET's margin against switching overshoot is held by the commutation loop and the HF bypass (`power-pcb-layout` §3.1), the gate drive (§8) and, if needed, a snubber (§12). Example: a 50 V bus with 60 V FETs and a 51 V-standoff TVS.
 - **Energy:** the TVS absorbs what the bulk cannot during regeneration with the input path open (§9). Compare with its pulse rating at the real pulse width.
 
 ## 4. Inrush, soft start, hot plug
@@ -60,7 +60,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 - **Hot plug is a different event from switch-on.**
   - Plugging the source in steps the input FET's source up through its body diode while the gate capacitor still holds the gate low. The gate-drain capacitance couples the edge into $V_{GS}$ and can turn the FET on.
   - **Fix:** a gate-source capacitor, so the step $V_{in} \cdot C_{GD}/(C_{GD}+C_{GS})$ stays below $|V_{th,min}|$ *(derived)*.
-  - **Example:** e-inverted-pendulum's simulation found a 44.6 A hot-plug spike above the FET's 40 A pulse rating, and the logic powering up with the switch off, before this fix.
+  - **Example:** on a 3S LiPo robot board, simulation found a 44.6 A hot-plug spike above the FET's 40 A pulse rating, and the logic powering up with the switch off, before this fix.
   - Simulate hot plug with the lead inductance and source resistance, switch on and off.
 - **Mains or bench-supplied buses:** an NTC or a pre-charge resistor bypassed after charge does the same job (*rule of thumb*: choose by energy and restart time).
 
@@ -136,7 +136,7 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 - **Negative phase-node swing:** during dead time the load current freewheels through the low-side body diode, so the phase node sits near −$V_f$, plus ringing.
   - Check it against the driver's phase-pin absolute minimum.
   - Fix with a Schottky from GND to each phase node at the pins, FETs with integrated Schottky, or a driver rated for the swing.
-  - Example: e-inverted-pendulum simulated −0.73 V for about 3 µs against a −0.6 V limit; an SS34 clamp brought it to −0.36 V.
+  - Example: a 3S LiPo robot board simulated −0.73 V for about 3 µs against a −0.6 V limit; an SS34 clamp brought it to −0.36 V.
 
 ## 9. Bus capacitors and regeneration
 
@@ -238,4 +238,4 @@ Companion skills: `power-pcb-layout` (hot loops, gate loops, Kelvin routing, the
 - [LF-SMBJ] Littelfuse, SMBJ series TVS datasheet.
 - [LF-FUSE] Littelfuse, *Fuseology* selection and design guides: breaking capacity (interrupting rating) and the maximum available fault current.
 - IPC-9592B, *Requirements for Power Conversion Devices for the Computer and Telecommunications Industries* (Nov 2012): §4.4 derating guidelines, Table A-3 diodes and transistors (contents only: https://www.electronics.org/TOC/IPC-9592B.pdf).
-- Board examples: embedded-pro/e-foc-hardware `docs/foc-hardware-design-guide.md` and embedded-pro/e-inverted-pendulum-hardware `docs/robot-hardware-design-guide.md`, `simulation/REPORT.md`.
+- Board examples: the design guides and simulation report of the two boards above (not public sources; the numbers are reproduced here with their context).

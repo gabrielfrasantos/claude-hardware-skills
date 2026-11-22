@@ -9,7 +9,7 @@ Use this skill to create or change a board's schematic. The default is **schemat
 
 Why code: every connection is recorded as it is made, so the tools can prove the drawn netlist is the intended one. A rebuild is byte-identical, so a diff shows exactly what changed. And a change of pin map or value is a one-line edit.
 
-The tools are in `scripts/`: `schgen.py` (build, check, equivalence), the `schgen/` library (`sch.py`, `library.py`, `netlist.py`, `sexpr.py`) and `library_check.py`. schgen comes from embedded-pro's e-psu-hardware and e-inverted-pendulum-hardware. Ported here, it rebuilds e-inverted-pendulum's 8 sheets, 231 parts and intended netlist **byte-identical** to that project's own generator (2026-11-20).
+The tools are in `scripts/`: `schgen.py` (build, check, equivalence), the `schgen/` library (`sch.py`, `library.py`, `netlist.py`, `sexpr.py`) and `library_check.py`. schgen was generalised from the generators of two real board repos. Ported here, it rebuilds a real robot-controller board's 8 sheets, 231 parts and intended netlist **byte-identical** to that project's own generator (2026-11-20).
 
 ## 1. Board repo layout
 
@@ -25,7 +25,7 @@ hardware/<board>/   the generated .kicad_sch files, the project library (.kicad_
 
 ## 2. Drawing conventions
 
-These are the e-psu / e-inverted-pendulum conventions:
+These are the conventions:
 
 - **One sheet per functional block**, numbered. References on sheet n are n01–n99 (U301, C305): a block numbering scheme. Class letters (U, C, R, J, Q, D, L, Y, ...) follow ASME Y14.44, the current US reference-designation standard (IEEE 200 is withdrawn) [ASME-Y14.44].
 - On each sheet, **titled boxes** (`sh.box`) group circuits, and each box has a **design note** (`sh.note`) that gives the numbers' sources: datasheet section, app note, design calc, decision.
@@ -80,7 +80,7 @@ Hardware picks the MCU pins after placement (docs/design.md §4):
 | `schgen.py equivalence config.py <rev\|file.net>` | kicad-cli, git | after a drawing-only change: same parts, fields and pin-to-net partition as before (`--allow-renames` reports net renames instead of failing) |
 | `library_check.py board.kicad_pcb` | nothing | every placed symbol's pins have pads on its footprint, and the reverse; every BOM part has a footprint, LCSC and MPN (`--fields`); no part missing from the board |
 
-`library_check.py` reads the symbols embedded in the schematics and the footprints embedded in the board, so it also works on hand-drawn schematics and without KiCad. On e-inverted-pendulum it passes (231 parts). On e-foc it finds plated mounting holes whose symbol has no pin, and 167 parts without LCSC/MPN fields.
+`library_check.py` reads the symbols embedded in the schematics and the footprints embedded in the board, so it also works on hand-drawn schematics and without KiCad. On that board it passes (231 parts). On a motor-driver board it finds plated mounting holes whose symbol has no pin, and 167 parts without LCSC/MPN fields.
 
 Run `build` and `check` in CI next to ERC.
 
@@ -105,8 +105,8 @@ The easyeda2kicad step was not run in the build environment of this skill (no ne
 
 ## 8. References
 
-- schgen: embedded-pro/e-psu-hardware and embedded-pro/e-inverted-pendulum-hardware `scripts/schgen` (D-020, D-033 there).
-- KiCad 10 schematic format: net-class directive labels (`netclass_flag`) as KiCad 10.0 writes them (read from e-foc, 2026-11-20).
+- schgen: generalised from the schematic generators of two real board repos (a power supply and a robot controller); output checked byte-identical against one of them.
+- KiCad 10 schematic format: net-class directive labels (`netclass_flag`) as KiCad 10.0 writes them (read from a KiCad 10 motor-driver project, 2026-11-20).
 - docs/design.md D10, D16, D19.
 - [ASME-Y14.44] ASME Y14.44-2008 (reaffirmed 2024), *Reference Designations for Electrical and Electronics Parts and Equipment* (contents: class letters, App. A block numbering). https://webstore.ansi.org/standards/asme/asmey14442008r2024 ; IEEE 200-1975 status withdrawn: https://standards.ieee.org/standard/200-1975.html
 - [IPC-2612] IPC-2612 (2010), *Sectional Requirements for Electronic Diagramming Documentation* (contents: net naming, spares, power and ground table, bypass capacitors). Preview: https://webstore.ansi.org/preview-pages/IPC/preview_IPC+2612-2010.pdf

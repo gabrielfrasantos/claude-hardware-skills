@@ -1,13 +1,13 @@
 """Generate the KiCad 10 hierarchical schematic from Python sheet descriptions.
 
-Part of the schematic-capture skill (claude-hardware-skills). Ported from embedded-pro/e-psu-hardware and
-e-inverted-pendulum-hardware scripts/schgen/sch.py; board-specific settings (power symbols, company, libraries) are
+Part of the schematic-capture skill (hardware-design-skills). Generalised from the schgen of earlier board repos;
+board-specific settings (power symbols, company, libraries) are
 parameters. Each sheet is drawn as titled boxes of wired
 circuits: `rail` / `vrail` join pins with a bus wire, `link` wires pin to pin, `path` draws a polyline, and `net`
 puts a short stub with a label (local or global) or a power symbol on a pin. Every connection is recorded, so
 `expected.json` states the intended netlist and `check.py` compares KiCad's export with it.
 
-Differences from e-psu:
+Differences from the original schgen:
   - KiCad 10 file format, our symbol loader (`library.py`) and the project library;
   - deterministic UUIDs (uuid5), so a rebuild is byte-identical and CI can diff it;
   - every named net carries at least one label, so net names (and the PCB's nets) do not depend on the drawing;

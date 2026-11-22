@@ -33,7 +33,7 @@ def fetch(lcsc):
     name = re.sub(r"[^A-Za-z0-9._-]+", "_", item["componentModelEn"])
     pdf = TARGET / f"{lcsc}_{name}.pdf"
     if not pdf.exists():
-        request = urllib.request.Request(url, headers={"User-Agent": "claude-hardware-skills/fetch_datasheet"})
+        request = urllib.request.Request(url, headers={"User-Agent": "hardware-design-skills/fetch_datasheet"})
         pdf.write_bytes(urllib.request.urlopen(request, timeout=120).read())
     if pdf.read_bytes()[:4] != b"%PDF":
         pdf.unlink()

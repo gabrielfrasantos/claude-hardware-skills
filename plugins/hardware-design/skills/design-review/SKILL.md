@@ -60,7 +60,7 @@ pads outside the board outline (its copper and holes still go into the Gerbers a
 are MAJOR. House-style geometry (`pcb-design-rules` §2.3), the teardrop gates (yield, not a fab requirement) and soft
 gates are MINOR. Mixed part orientation is a NOTE (deliberate rotations are common). A step that couldn't run is a
 NOTE with the reason. Courtyard overlaps shallower than 0.01 mm aren't counted, as KiCad's DRC doesn't count them.
-Calibrated on the first real board review (e-inverted-pendulum, issue #21).
+Calibrated on the first real board review (issue #21).
 
 **Boards set up outside the plugin's conventions** report the conventions as findings: net classes not in the
 standard set, teardrops not turned on, a stack-up template that doesn't match. Run `pcb_rules.py apply` and
@@ -121,8 +121,8 @@ Measured 2026-11-20:
 
 | Board | Seeded | Found by the scripts | Clean board: findings at MINOR or above |
 |---|---|---|---|
-| e-inverted-pendulum (board + schematic, VBAT 12.6 V) | 6 | 6 | 8: four 25 V capacitors at 12.6 V (DC-bias check), four connectors without ESD parts |
-| e-foc (board; Vdrive given as 12 V, an ASSUMPTION for the run) | 5 | 5 | 8: one supply pin 10.4 mm from its capacitor, an open-collector POWER_GOOD without pull-up, six connectors |
+| Robot controller, 3S LiPo (board + schematic, VBAT 12.6 V) | 6 | 6 | 8: four 25 V capacitors at 12.6 V (DC-bias check), four connectors without ESD parts |
+| Three-phase motor driver (board; Vdrive given as 12 V, an ASSUMPTION for the run) | 5 | 5 | 8: one supply pin 10.4 mm from its capacitor, an open-collector POWER_GOOD without pull-up, six connectors |
 
 The scripted recall is partly circular: the seeds are the kinds of defect the checks look for. It shows the checks
 work on real boards, not only on synthetic ones. **The useful number is the agent's**: seed a board, have the
@@ -158,7 +158,6 @@ work. That run costs model time and hasn't been done here.
   - [SLUA887A] TI bootstrap note and [VISHAY-BIAS] (MLCC DC bias);
   - [LF-SMBJ] Littelfuse SMBJ datasheet (TVS standoff).
 - KiCad 10 file formats: pads carry `pinfunction` and `pintype` when the board was updated from a schematic (read
-  from the e-foc board); the schematic's embedded `lib_symbols` carry pin names and types (read from the
-  e-inverted-pendulum schematic).
-- Measurements in §5: `review_defects.py run` on embedded-pro/e-inverted-pendulum-hardware (51a4bcf) and
-  embedded-pro/e-foc-hardware, 2026-11-20.
+  from a real motor-driver board); the schematic's embedded `lib_symbols` carry pin names and types (read from a
+  real robot-controller schematic).
+- Measurements in §5: `review_defects.py run` on the two boards in the table, 2026-11-20.

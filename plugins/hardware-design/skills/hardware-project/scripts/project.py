@@ -1,7 +1,7 @@
 """Where the board repo is and which board to work on, for the hardware-project scripts.
 
-The scripts run from anywhere inside a board repo laid out as hardware/<board>/<board>.kicad_pro (the e-psu /
-e-foc / e-inverted-pendulum layout). The repo root is the git top level of the working directory, or
+The scripts run from anywhere inside a board repo laid out as hardware/<board>/<board>.kicad_pro (the layout the
+scaffold writes). The repo root is the git top level of the working directory, or
 $HW_PROJECT_ROOT; the default board is the only one under hardware/, or $HW_BOARD. Outputs go to fixed folders
 at the root (review_exports/, manufacturing/, release/, bom/, datasheets/), which the scaffold's .gitignore lists.
 """

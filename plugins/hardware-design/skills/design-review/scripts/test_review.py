@@ -207,6 +207,51 @@ class Review(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(out, "review.md")))
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(review.main([path, "--out", out, "--skip", "erc,stock"]), 0)   # report-only by default
+        checks = json.load(open(os.path.join(out, "findings.json")))["checks"]
+        self.assertEqual(checks["library"]["status"], "missing_inputs")
+        self.assertEqual(checks["erc"]["status"], "skipped")
+        self.assertEqual(checks["netclasses"]["status"], "missing_inputs")       # no .kicad_pro
+        self.assertEqual(checks["placement"]["status"], "completed")
+        self.assertNotIn("library", json.load(open(os.path.join(out, "findings.json")))["steps"])
+
+    def _failing_erc(self, out, *extra):
+        """Review a board with a schematic next to it, ERC only, with a kicad-cli that always fails."""
+        path = board(CLEAN)
+        with open(path[:-len(".kicad_pcb")] + ".kicad_sch", "w") as f:
+            f.write('(kicad_sch\n\t(version 20260206)\n\t(generator "eeschema")\n)\n')
+        cli = os.path.join(os.path.dirname(path), "fake-kicad-cli")
+        with open(cli, "w") as f:
+            f.write("#!/bin/sh\necho 'kicad-cli: boom' >&2\nexit 3\n")
+        os.chmod(cli, 0o755)
+        skip = "schematic,library,rules,netclasses,placement,blocks,stock"
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            code = review.main([path, "--out", out, "--kicad-cli", cli, "--skip", skip, *extra])
+        return code, json.load(open(os.path.join(out, "findings.json"))), log.getvalue()
+
+    def test_failed_erc_is_not_hidden_by_an_old_clean_report(self):
+        out = tempfile.mkdtemp()
+        with open(os.path.join(out, "erc.json"), "w") as f:      # a clean report from an earlier run
+            json.dump({"sheets": [{"path": "/", "violations": []}]}, f)
+        code, data, _ = self._failing_erc(out)
+        self.assertEqual(code, 0)                                   # report-only by default
+        self.assertEqual(data["checks"]["erc"]["status"], "failed")
+        self.assertIn("boom", data["checks"]["erc"]["reason"])
+        self.assertNotIn("erc", data["steps"])
+        self.assertFalse(os.path.exists(os.path.join(out, "erc.json")))
+        self.assertIn("erc: failed", open(os.path.join(out, "review.md")).read())
+
+    def test_require_fails_when_a_required_check_did_not_complete(self):
+        code, _, log = self._failing_erc(tempfile.mkdtemp(), "--require", "erc")
+        self.assertEqual(code, 1)
+        self.assertIn("required check incomplete: erc (failed", log)
+        code, _, log = self._failing_erc(tempfile.mkdtemp(), "--require", "all")
+        self.assertEqual(code, 1)                                   # 'all' = every step not --skip'ped
+        path = board(CLEAN)
+        out = tempfile.mkdtemp()
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = review.main([path, "--out", out, "--skip", "schematic,erc,library,rules,netclasses,stock",
+                                "--require", "all"])
+        self.assertEqual(code, 0)
 
 
 if __name__ == "__main__":

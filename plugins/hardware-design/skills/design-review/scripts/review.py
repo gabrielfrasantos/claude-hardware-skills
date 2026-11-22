@@ -4,9 +4,12 @@
     review.py <project dir | .kicad_pro | .kicad_pcb | .kicad_sch> [--out DIR] [--voltage NET=V ...]
               [--voltages volts.json] [--netlist file.net] [--kicad-cli PATH] [--fab jlcpcb] [--assembly jlcpcb]
               [--blocks 'pcb/reference/*.block.json'] [--bom bom/bom.csv] [--skip NAME,...] [--fail-on MAJOR]
-              [--allow-unrouted]
+              [--require NAME,...|all] [--allow-unrouted]
 
-Runs, each when its inputs exist (a check that can't run is listed as a NOTE with the reason):
+Runs, each when its inputs exist. Each step ends with a status, kept apart from the findings' severities:
+completed, partial (a part could not run: DRC without kicad-cli, assembly), failed (its tool broke),
+missing_inputs (nothing to run it on) or skipped (--skip, or stock without --bom). Failed and missing_inputs also
+add a NOTE with the reason. Zero findings from a step that did not complete is not a pass.
   schematic   this skill's checks on the design model (checks.py): decoupling, pull-ups, MCU pins, ratings,
               orientation, connector ESD, dividers, test points
   erc         KiCad ERC (kicad-cli)
@@ -18,10 +21,12 @@ Runs, each when its inputs exist (a check that can't run is listed as a NOTE wit
   blocks      copied vendor blocks still where the vendor has them (reference-block/refblock.py check)
   stock       stock, packages, lifecycle (hardware-project/jlc_stock.py; network; only with --bom)
 
-Writes DIR/findings.json (every finding: id, severity, area, check, anchor, message, rule, tool) and DIR/review.md,
-and DIR/netlist.net when kicad-cli can export one. The reviewer agent starts from these. Default DIR:
-review_exports/<board>/review/. Report-only: exit 0 unless --fail-on BLOCKER|MAJOR|MINOR finds one at that level
-or above.
+Writes DIR/findings.json (every finding: id, severity, area, check, anchor, message, rule, tool; "checks": each
+step's status and reason; "steps": the completed ones) and DIR/review.md, and DIR/netlist.net when kicad-cli can
+export one. The reviewer agent starts from these. Default DIR: review_exports/<board>/review/. The steps run in an
+empty folder and their reports then replace the last run's, so a stale report never stands in for a failed step.
+Report-only: exit 0 unless --fail-on BLOCKER|MAJOR|MINOR finds one at that level or above, or a step named in
+--require (a release gate; 'all' = every step not skipped with --skip) did not complete.
 
 The model comes from the board plus the schematics' symbols when there is a board (pin positions, no KiCad
 needed), else from a netlist (--netlist, or exported with kicad-cli), so a schematic can be reviewed before layout.
@@ -45,6 +50,10 @@ import design as D  # noqa: E402
 
 SEVERITY = ["BLOCKER", "MAJOR", "MINOR", "NOTE"]
 STEPS = ["schematic", "erc", "library", "rules", "netclasses", "placement", "blocks", "stock"]
+STATUS = ["completed", "partial", "failed", "missing_inputs", "skipped"]
+# Reports the steps write into the output folder: removed at the start of each run's hand-over, so none is stale.
+ARTIFACTS = ["netlist.net", "erc.json", "library.json", "rules.json", "netclasses.json", "placement.json",
+             "assembly.json", "stock.json"]
 SAFETY = {"shorts", "clearance_violations", "below_fab_minimum"}
 HOUSE_STYLE = {"any_angle_segments", "right_angle_corners", "track_junctions", "jogs", "diagonal_length_pct",
                "long_diagonals", "short_segment_pct", "segments_per_connection_p90", "detour_p90"}
@@ -87,25 +96,50 @@ def finding(severity, area, check, anchor, message, rule, tool):
 
 
 def not_run(step, why):
-    return finding("NOTE", "review", step, "", f"{step} not run: {why}", "design-review §2", step)
+    """A NOTE for a part of a step that could not run (DRC within rules, assembly within placement): the step is
+    then 'partial'. A whole step that can't run raises NotRun instead."""
+    f = finding("NOTE", "review", step, "", f"{step} not run: {why}", "design-review §2", step)
+    f["_partial"] = True
+    return f
+
+
+class NotRun(Exception):
+    """A step that did not complete: 'failed' (its tool broke), 'missing_inputs' (nothing to run it on) or
+    'skipped' (not asked for)."""
+    def __init__(self, status, why):
+        super().__init__(why)
+        self.status, self.why = status, why
+
+
+def _tail(text, default):
+    return (text or "").strip()[-200:] or default
 
 
 # ------------------------------------------------------------------------------------------------ steps
 def step_schematic(model):
+    if not model:
+        raise NotRun("missing_inputs", "no board, schematic netlist or kicad-cli")
     return [finding(x["severity"], "schematic", x["check"], x["anchor"], x["message"], x["rule"], "checks.py")
             for x in C.run(model)]
 
 
 def step_erc(cli, sch, out):
     if not cli or not sch:
-        return [not_run("erc", "needs kicad-cli and a schematic")]
+        raise NotRun("missing_inputs", "needs kicad-cli and a schematic")
     path = os.path.join(out, "erc.json")
-    r = subprocess.run([cli, "sch", "erc", "--format", "json", "--severity-all", "-o", path, sch],
-                       capture_output=True, text=True)
-    if not os.path.exists(path):
-        return [not_run("erc", (r.stdout + r.stderr).strip()[-200:] or "kicad-cli failed")]
-    with open(path) as f:
-        data = json.load(f)
+    try:
+        r = subprocess.run([cli, "sch", "erc", "--format", "json", "--severity-all", "-o", path, sch],
+                           capture_output=True, text=True)
+    except OSError as e:
+        raise NotRun("failed", f"kicad-cli not runnable: {e}")
+    # Without --exit-code-violations, kicad-cli exits 0 whatever ERC finds: any other code is the tool failing.
+    if r.returncode != 0 or not os.path.exists(path):
+        raise NotRun("failed", f"kicad-cli exit {r.returncode}: " + _tail(r.stdout + r.stderr, "no report written"))
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except ValueError as e:
+        raise NotRun("failed", f"unreadable ERC report: {e}")
     found = []
     for sheet in data.get("sheets", []):
         for v in sheet.get("violations", []):
@@ -118,11 +152,11 @@ def step_erc(cli, sch, out):
 
 def step_library(board, sch, out):
     if not (board and sch):
-        return [not_run("library", "needs a board and a schematic")]
+        raise NotRun("missing_inputs", "needs a board and a schematic")
     path = os.path.join(out, "library.json")
     code, text = run([script("schematic-capture", "library_check.py"), board, "--schematic", sch, "--json", path])
     if not os.path.exists(path):
-        return [not_run("library", text.strip()[-200:])]
+        raise NotRun("failed", _tail(text, "library_check.py wrote no report"))
     with open(path) as f:
         data = json.load(f)
     sev = {"pins_without_pad": "MAJOR", "pads_without_pin": "MAJOR", "not_on_board": "MAJOR", "missing_fields": "MINOR"}
@@ -152,7 +186,7 @@ def _gate_findings(data, tool, area, rule, kinds):
 
 def step_rules(board, cli, fab, out, allow_unrouted=False):
     if not board:
-        return [not_run("rules", "no board")]
+        raise NotRun("missing_inputs", "no board")
     path = os.path.join(out, "rules.json")
     cmd = [script("pcb-design-rules", "pcb_rules.py"), "check", board, "--json", path]
     if allow_unrouted:
@@ -165,7 +199,7 @@ def step_rules(board, cli, fab, out, allow_unrouted=False):
         cmd += ["--fab", fab]
     code, text = run(cmd)
     if not os.path.exists(path):
-        return [not_run("rules", text.strip()[-200:])]
+        raise NotRun("failed", _tail(text, "pcb_rules.py wrote no report"))
     with open(path) as f:
         data = json.load(f)
     found = _gate_findings(data, "pcb_rules.py check", "layout", "pcb-design-rules §2", None)
@@ -177,11 +211,13 @@ def step_rules(board, cli, fab, out, allow_unrouted=False):
 
 def step_netclasses(board, out):
     if not board:
-        return [not_run("netclasses", "no board")]
+        raise NotRun("missing_inputs", "no board")
+    if not os.path.exists(os.path.splitext(board)[0] + ".kicad_pro"):
+        raise NotRun("missing_inputs", "no .kicad_pro next to the board (the net classes live there)")
     path = os.path.join(out, "netclasses.json")
     code, text = run([script("pcb-copper", "netclasses.py"), "check", board, "--json", path])
     if not os.path.exists(path):
-        return [not_run("netclasses", text.strip()[-200:])]
+        raise NotRun("failed", _tail(text, "netclasses.py wrote no report"))
     with open(path) as f:
         data = json.load(f)
     return _gate_findings(data, "netclasses.py check", "copper", "pcb-copper §4", None)
@@ -189,7 +225,7 @@ def step_netclasses(board, out):
 
 def step_placement(board, assembly, out):
     if not board:
-        return [not_run("placement", "no board")]
+        raise NotRun("missing_inputs", "no board")
     found = []
     path = os.path.join(out, "placement.json")
     code, text = run([script("pcb-placement", "place.py"), "gate", board, "--json", path, "--assembly", "none"])
@@ -208,13 +244,13 @@ def step_placement(board, assembly, out):
                 found.append(finding("MAJOR", "placement", k, str(item), f"{k}: {item}", "pcb-placement §4",
                                      "place.py gate"))
     else:
-        found.append(not_run("placement", text.strip()[-200:]))
+        raise NotRun("failed", _tail(text, "place.py gate wrote no report"))
     if assembly == "none":
         return found
     path = os.path.join(out, "assembly.json")
     code, text = run([script("pcb-placement", "dfa.py"), board, "--assembly", assembly, "--json", path])
     if not os.path.exists(path):
-        return found + [not_run("assembly", text.strip()[-200:])]
+        return found + [not_run("assembly", _tail(text, "dfa.py wrote no report"))]
     with open(path) as f:
         dd = json.load(f)["detail"]
     source = json.load(open(path)).get("spacing_source", assembly)
@@ -248,7 +284,7 @@ def step_placement(board, assembly, out):
 
 def step_blocks(board, pattern, root):
     if not board:
-        return []
+        raise NotRun("missing_inputs", "no board")
     paths = sorted(glob.glob(pattern if os.path.isabs(pattern) else os.path.join(root, pattern), recursive=True))
     found = []
     for p in paths:
@@ -262,11 +298,11 @@ def step_blocks(board, pattern, root):
 
 def step_stock(bom, out):
     if not bom:
-        return []
+        raise NotRun("skipped", "not requested (no --bom)")
     path = os.path.join(out, "stock.json")
     code, text = run([script("hardware-project", "jlc_stock.py"), bom, "--json", path])
     if not os.path.exists(path):
-        return [not_run("stock", text.strip()[-200:])]
+        raise NotRun("failed", _tail(text, "jlc_stock.py wrote no report"))
     with open(path) as f:
         data = json.load(f)
     found = [finding("MAJOR", "bom", "stock", r["lcsc"], f"{r['lcsc']} {r.get('mpn', '')}: {r['status']}",
@@ -280,8 +316,18 @@ def step_stock(bom, out):
 def report_md(meta, findings):
     counts = {s: sum(1 for x in findings if x["severity"] == s) for s in SEVERITY}
     lines = [f"# Design review: {meta['board_name']}", "",
-             f"Generated {meta['generated']} from {meta['model']}. Checks run: {', '.join(meta['steps'])}.", "",
-             "| Severity | Count |", "|---|---|"] + [f"| {s} | {counts[s]} |" for s in SEVERITY] + [""]
+             f"Generated {meta['generated']} from {meta['model']}. Checks completed: "
+             f"{', '.join(meta['steps']) or 'none'}.", ""]
+    checks = meta.get("checks", {})
+    not_done = [(s, c) for s, c in checks.items() if c["status"] != "completed"]
+    if meta.get("incomplete_required"):
+        lines += [f"**Incomplete: required check(s) {', '.join(meta['incomplete_required'])} did not complete. "
+                  "Zero findings from a check that did not run is not a pass.**", ""]
+    if not_done:
+        lines += ["Checks that did not complete (no finding from them means nothing):", ""]
+        lines += [f"- {s}: {c['status']}" + (f": {c['reason'][:300]}" if c.get("reason") else "") for s, c in not_done]
+        lines += [""]
+    lines += ["| Severity | Count |", "|---|---|"] + [f"| {s} | {counts[s]} |" for s in SEVERITY] + [""]
     lines += ["| # | Severity | Area | Check | Anchor | Finding | Rule |", "|---|---|---|---|---|---|---|"]
     for x in findings:
         msg = x["message"].replace("|", "\\|").replace("\n", " ")
@@ -306,6 +352,8 @@ def main(argv=None):
     ap.add_argument("--bom", help="BOM CSV for the stock check (network)")
     ap.add_argument("--skip", default="", help="steps to skip: " + ",".join(STEPS))
     ap.add_argument("--fail-on", choices=SEVERITY[:3])
+    ap.add_argument("--require", metavar="STEP,...|all",
+                    help="exit 1 unless these steps completed (a release gate); 'all' = every step not --skip'ped")
     ap.add_argument("--allow-unrouted", action="store_true",
                     help="a placed board not yet routed: unconnected items are not findings (pcb_rules.py)")
     a = ap.parse_args(argv)
@@ -323,13 +371,28 @@ def main(argv=None):
             cli = c
             break
     skip = {s.strip() for s in a.skip.split(",") if s.strip()}
+    require = set(STEPS) - skip if a.require == "all" else {s.strip() for s in (a.require or "").split(",") if s.strip()}
+    unknown = (skip | require) - set(STEPS)
+    if unknown:
+        sys.exit(f"unknown step(s): {', '.join(sorted(unknown))} (steps: {', '.join(STEPS)})")
+    # Every run starts in an empty folder, so a report left by an earlier run can never stand in for this one's.
+    work = tempfile.mkdtemp(prefix=".run-", dir=out)
+    try:
+        return _review(a, name, root, out, work, pro, board, sch, cli, skip, require)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
+
+def _review(a, name, root, out, work, pro, board, sch, cli, skip, require):
     netlist = a.netlist
     if not netlist and cli and sch:
-        tmp = os.path.join(out, "netlist.net")
-        subprocess.run([cli, "sch", "export", "netlist", "--format", "kicadsexpr", "-o", tmp, sch],
-                           capture_output=True, text=True)
-        netlist = tmp if os.path.exists(tmp) else None
+        tmp = os.path.join(work, "netlist.net")
+        try:
+            r = subprocess.run([cli, "sch", "export", "netlist", "--format", "kicadsexpr", "-o", tmp, sch],
+                               capture_output=True, text=True)
+            netlist = tmp if r.returncode == 0 and os.path.exists(tmp) else None
+        except OSError:
+            netlist = None
     if board:
         model = D.from_board(board, sch, pro)
     elif netlist:
@@ -344,28 +407,46 @@ def main(argv=None):
             k, v = kv.split("=", 1)
             model.overrides[k] = float(v)
 
-    findings, ran = [], []
-    plan = [("schematic", lambda: step_schematic(model) if model else [not_run("schematic", "no board, schematic netlist or kicad-cli")]),
-            ("erc", lambda: step_erc(cli, sch, out)),
-            ("library", lambda: step_library(board, sch, out)),
-            ("rules", lambda: step_rules(board, cli, a.fab, out, a.allow_unrouted)),
-            ("netclasses", lambda: step_netclasses(board, out)),
-            ("placement", lambda: step_placement(board, a.assembly, out)),
+    findings, checks = [], {}
+    plan = [("schematic", lambda: step_schematic(model)),
+            ("erc", lambda: step_erc(cli, sch, work)),
+            ("library", lambda: step_library(board, sch, work)),
+            ("rules", lambda: step_rules(board, cli, a.fab, work, a.allow_unrouted)),
+            ("netclasses", lambda: step_netclasses(board, work)),
+            ("placement", lambda: step_placement(board, a.assembly, work)),
             ("blocks", lambda: step_blocks(board, a.blocks, root)),
-            ("stock", lambda: step_stock(a.bom, out))]
+            ("stock", lambda: step_stock(a.bom, work))]
     for step, fn in plan:
         if step in skip:
+            checks[step] = dict(status="skipped", reason="--skip")
             continue
         try:
-            findings += fn()
-            ran.append(step)
+            got = fn()
+            partial = [x["message"] for x in got if x.pop("_partial", False)]
+            checks[step] = dict(status="partial", reason="; ".join(partial)) if partial else dict(status="completed")
+            findings += got
+        except NotRun as e:
+            checks[step] = dict(status=e.status, reason=e.why)
         except Exception as e:                       # a broken step must not hide the others
-            findings.append(not_run(step, f"{type(e).__name__}: {e}"))
+            checks[step] = dict(status="failed", reason=f"{type(e).__name__}: {e}")
+        if checks[step]["status"] in ("failed", "missing_inputs"):
+            findings.append(finding("NOTE", "review", step, "", f"{step} not run ({checks[step]['status']}): "
+                                    f"{checks[step]['reason']}", "design-review §2", step))
+    ran = [s for s in STEPS if checks[s]["status"] == "completed"]
+    incomplete = [s for s in STEPS if s in require and checks[s]["status"] != "completed"]
+    for f in ARTIFACTS:                          # this run's reports replace the last run's; stale ones go
+        if os.path.exists(os.path.join(out, f)):
+            os.unlink(os.path.join(out, f))
+    for f in os.listdir(work):
+        os.replace(os.path.join(work, f), os.path.join(out, f))
+    if netlist and os.path.dirname(netlist) == work:
+        netlist = os.path.join(out, "netlist.net")
     findings.sort(key=lambda x: (SEVERITY.index(x["severity"]), x["area"], x["check"], x["anchor"]))
     for i, x in enumerate(findings, 1):
         x["id"] = f"F{i}"
     meta = dict(board_name=name, generated=datetime.datetime.now().isoformat(timespec="seconds"),
-                model=model.source if model else "no model", steps=ran,
+                model=model.source if model else "no model", steps=ran, checks=checks,
+                required=sorted(require, key=STEPS.index), incomplete_required=incomplete,
                 inputs=dict(project=pro, board=board, schematic=sch, netlist=netlist, kicad_cli=cli),
                 voltages=model.overrides if model else {})
     counts = {s: sum(1 for x in findings if x["severity"] == s) for s in SEVERITY}
@@ -377,6 +458,10 @@ def main(argv=None):
     for x in findings:
         if x["severity"] in ("BLOCKER", "MAJOR"):
             print(f"  {x['id']} {x['severity']} {x['area']}/{x['check']}: {x['message'][:160]}")
+    for s in incomplete:
+        print(f"  required check incomplete: {s} ({checks[s]['status']}: {checks[s].get('reason', '')[:160]})")
+    if incomplete:
+        return 1
     if a.fail_on and any(SEVERITY.index(x["severity"]) <= SEVERITY.index(a.fail_on) for x in findings):
         return 1
     return 0

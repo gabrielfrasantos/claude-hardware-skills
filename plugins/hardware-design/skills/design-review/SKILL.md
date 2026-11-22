@@ -32,7 +32,9 @@ python3 scripts/review.py <project dir | .kicad_pro> --voltage VBAT=12.6 --volta
    voltage. Rating, orientation and divider checks skip them. Use the **maximum** voltage (a charged battery, a
    mis-set charger), not the nominal one.
 2. **Run `review.py`.** In a `hardware-project` repo, `export_review.py` runs it into the review package.
-   `--fail-on MAJOR` turns it into a CI gate; by default it only reports.
+   `--fail-on MAJOR` turns it into a CI gate; by default it only reports. A release gate also needs
+   `--require all` (or the steps it depends on, e.g. `--require erc,library,rules`): it fails when a required
+   check did not complete. Without it, a check that broke reports zero findings and the gate passes.
 3. **Ask for the review**: "review the schematic and PCB" uses the `board-reviewer` agent. The agent reads
    `findings.json` first, then the netlist, then the datasheets, then the images.
 4. **Close each finding**: fix it, or record an accepted deviation as a decision (`hardware-project`). A false
@@ -55,6 +57,12 @@ items are then not findings (passed on to `pcb_rules.py check`). Shorts and clea
 | placement | `pcb-placement/place.py gate` and `dfa.py`: validity, assembly spacing, edge keep-outs, fiducials, orientation | board |
 | blocks | `reference-block/refblock.py check` for every `*.block.json` | board, blocks |
 | stock | `hardware-project/jlc_stock.py` | `--bom`, network |
+
+Each step ends with a status in `findings.json` (`checks`) and at the top of `review.md`, kept apart from finding
+severity: `completed`, `partial` (DRC without `kicad-cli`, or assembly, could not run), `failed` (the tool broke,
+e.g. `kicad-cli` exited non-zero), `missing_inputs` (no schematic, no board, no `.kicad_pro`) or `skipped`
+(`--skip`, or stock without `--bom`). Only completed steps are listed as run. Every run works in an empty folder and
+then replaces the last run's reports, so an old clean `erc.json` can't stand in for an ERC that failed.
 
 Severity in the findings: shorts, clearance and anything below the fab minimum are BLOCKER, and so is a part with
 pads outside the board outline (its copper and holes still go into the Gerbers and the drill file). Other hard gates

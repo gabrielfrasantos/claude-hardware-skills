@@ -1,6 +1,6 @@
 ---
 name: pcb-design-rules
-description: Set a KiCad 10 board's design rules from the PCB fab's published capabilities (JLCPCB, Seeed Studio, or the strictest of several), turn teardrops on, record the stack-up's plane layers, and gate the layout on shorts and clearance, DRC, geometry quality (the owner's house style: 45-degree corners, mostly horizontal and vertical tracks with short diagonals, no jogs or mid-track branches; acute angles as the manufacturing rule) and copper quality (teardrops, pour islands and necks, ground-plane splits, stitching, signals over plane gaps), with a Python script that also runs in CI.
+description: Set a KiCad 10 board's design rules from the PCB fab's published capabilities (JLCPCB, Seeed Studio, or the strictest of several), turn teardrops on, record the stack-up's plane layers, and gate the layout on shorts and clearance, DRC, geometry quality (the owner's house style: 45-degree corners, mostly horizontal and vertical tracks with short diagonals, no jogs or mid-track branches; acute angles as the manufacturing rule) and copper quality (teardrops, pour islands and necks, ground-plane splits, stitching, signals over plane gaps), and keep the silkscreen to readable references only (silk.py), with Python scripts that also run in CI.
 ---
 
 # PCB design rules and layout quality gate (KiCad 10+)
@@ -135,8 +135,28 @@ Run `check` on pull requests next to ERC/DRC. [kicad-bot](https://github.com/emb
     pip install shapely scipy
     python3 .hw-skills/plugins/hardware-design/skills/pcb-design-rules/scripts/pcb_rules.py check \
       hardware/board/board.kicad_pcb --report pcb-quality.md
+    python3 .hw-skills/plugins/hardware-design/skills/pcb-design-rules/scripts/silk.py check hardware/board/board.kicad_pcb
 ```
 Expect red CI while routing is in progress: unconnected items, dangling tracks and quality gates fail until the layout is finished. Use `--allow-unrouted` on work-in-progress branches if that is what the team wants; shorts and clearance still fail.
+
+### 2.6 Silkscreen (`silk.py`)
+The silkscreen carries the **references and nothing else**: no values, no free text, no second copy of the reference. Footprint outlines and polarity marks stay. Every reference must be readable:
+- at the fab's minimum text height and stroke (JLCPCB 1.0 / 0.15 mm, from the profile);
+- clear of every pad by the fab's silk-to-pad distance (JLCPCB 0.15 mm);
+- off every silkscreen line and every other reference by KiCad's silk clearance (0.15 mm), and inside the board.
+```bash
+python3 scripts/silk.py apply hardware/board/board.kicad_pcb       # after placement, again after any move
+python3 scripts/silk.py check hardware/board/board.kicad_pcb --report silk.md
+```
+`apply` works as follows:
+- It hides each footprint's Value, every free text (the fab layer's `${REFERENCE}` copy included) and any other property on a silkscreen layer.
+- It sets the references to the fab's minimum, on the footprint's own side.
+- It moves each reference to the first clear spot around its part: above, below, right, left, the corners, then farther out up to 6 mm, upright first and then turned 90°. It avoids other parts' courtyards where it can. Parts are placed largest first.
+- It drops optional layers that no item uses (`User.*`, `Eco*`, `Dwgs`, `Cmts`), so a fresh board doesn't open with a stack of empty layers.
+
+`apply` lists the references it couldn't place. A reference with no clear spot means the placement leaves no room for it: give the part's neighbours a lane (`pcb-placement` §1), don't shrink the text below the fab's minimum. `check` fails on any visible text other than a reference, a hidden or undersized reference, or a reference on a pad, a silkscreen line, another reference or off the board.
+
+On the example board (102 parts, 0402 passives around a QFN-48), `apply` placed all 102 references and `check` passes. KiCad's DRC then reports no silkscreen findings; before, it reported 199 overlaps and 199 silk-over-copper findings (KiCad 10.0.8, 2026-11-22). The first placement left no lanes, and there 11 references found no spot.
 
 ## 3. Fab numbers (mm)
 
@@ -234,6 +254,7 @@ A board that departs from its template (e.g. power pours on an inner layer you c
 - [ ] Net classes set: Default from `--netclasses`, power/HV/USB from the domain skills.
 - [ ] Profile sources re-checked if the profile date is more than a few months old.
 - [ ] Every routing phase followed by Cleanup Tracks & Vias and `check --allow-unrouted`; shorts and clearance at 0 after every phase.
+- [ ] `silk.py apply` after placement and after any later move; `silk.py check` passes: references only, readable, on nothing.
 - [ ] Final `check` exits 0: no shorts, no clearance violations, nothing below the fab minimum, DRC and schematic parity clean, no unconnected or dangling items, every hard geometry and copper gate at 0.
 - [ ] Soft-gate warnings explained or fixed; overrides justified in the PR.
 - [ ] Report (`--report`) attached to the PR or sent to the user.

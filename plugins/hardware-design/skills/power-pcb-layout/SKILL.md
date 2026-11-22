@@ -136,6 +136,7 @@ Identify each converter's **high-di/dt loop** and make it the smallest physical 
 
 ### 3.9 Decoupling and support parts (what you place)
 - Put each decoupling cap on the **same side** as its IC, next to the pin it serves, with its own via to the plane at the pad, ordered smallest value nearest the pin.
+- **Bulk capacitors go at the stage they feed**: a bridge's electrolytic and ceramics right at its high-side drains, not at the input connector. Their job is to supply the switching current locally; one placed far away adds the trace inductance it is there to cancel.
 - Snubbers (RC across the switch node or FET) go at the device. Input filters go at the connector, before the converter.
 - Pull-ups and pull-downs that set a safe state (gate holds, enables) go near the device they hold.
 

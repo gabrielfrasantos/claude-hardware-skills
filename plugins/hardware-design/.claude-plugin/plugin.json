@@ -1,6 +1,6 @@
 {
   "name": "hardware-design",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "displayName": "Hardware Design",
   "description": "Sourced rules and tested Python tools for KiCad 10 hardware design: project workflow with requirements traced to firmware, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly gates, power, RF, high-speed and interface layout, vendor reference layouts, and scripted design review with a reviewer agent",
   "author": {

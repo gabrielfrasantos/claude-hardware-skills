@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.2.0](https://github.com/gabrielfrasantos/hardware-design-skills/compare/v0.1.0...v0.2.0) (2026-11-22)
+
+
+### Features
+
+* **examples:** agent-neutral scaffold, headless net classes, and an example board gated in CI ([#26](https://github.com/gabrielfrasantos/hardware-design-skills/issues/26)) ([ceb8151](https://github.com/gabrielfrasantos/hardware-design-skills/commit/ceb8151296a1391ca48618546a43fc8e333f1985))
+* **examples:** rebuild stepper-ble from the skills alone ([#28](https://github.com/gabrielfrasantos/hardware-design-skills/issues/28)) ([91a62e4](https://github.com/gabrielfrasantos/hardware-design-skills/commit/91a62e47ef61eeeacb62ffb99b1ac48a99035473))
+* **examples:** redraw stepper-ble's schematic and re-place its board ([#27](https://github.com/gabrielfrasantos/hardware-design-skills/issues/27)) ([cce86ac](https://github.com/gabrielfrasantos/hardware-design-skills/commit/cce86ac501750ced59682f6ea4b0770052a93c3f))
+* **pcb-design-rules:** net-integrity gates and a KiCad nightly canary ([#31](https://github.com/gabrielfrasantos/hardware-design-skills/issues/31)) ([2de1b8c](https://github.com/gabrielfrasantos/hardware-design-skills/commit/2de1b8c7e109843752d437ab373c44e775280ebe))
+* **pcb-placement:** update the board from the schematic without KiCad's window ([#30](https://github.com/gabrielfrasantos/hardware-design-skills/issues/30)) ([4fc7a6f](https://github.com/gabrielfrasantos/hardware-design-skills/commit/4fc7a6f625edcca6bf87022ebbbe58b2081a5d56))
+* **pcb-routing:** autoroute with Freerouting from a text-based DSN ([#32](https://github.com/gabrielfrasantos/hardware-design-skills/issues/32)) ([eda001c](https://github.com/gabrielfrasantos/hardware-design-skills/commit/eda001c1eca62bb8c7736dd83dba24ad4f036432))
+
+
+### Bug Fixes
+
+* **plugin:** close the gaps the skills-only rebuild found ([#29](https://github.com/gabrielfrasantos/hardware-design-skills/issues/29)) ([34a8cb9](https://github.com/gabrielfrasantos/hardware-design-skills/commit/34a8cb9a5e9d154d6e03f1f950e862d213c169db))
+* **review:** calibration from the first real board review ([#21](https://github.com/gabrielfrasantos/hardware-design-skills/issues/21)) ([#22](https://github.com/gabrielfrasantos/hardware-design-skills/issues/22)) ([8458677](https://github.com/gabrielfrasantos/hardware-design-skills/commit/8458677b15fa4569b3cccd82b0169103f89ceefc))
+* **rules:** JLCPCB PTH pad hole to inner-layer copper is 0.3 mm ([#23](https://github.com/gabrielfrasantos/hardware-design-skills/issues/23)) ([069aa8e](https://github.com/gabrielfrasantos/hardware-design-skills/commit/069aa8e80e2ef05dd6c3839de898dae84db4eb90))
+* sync identity and atomic writes, review check status, assembly reconciliation, trace inputs ([#33](https://github.com/gabrielfrasantos/hardware-design-skills/issues/33)) ([0f908b2](https://github.com/gabrielfrasantos/hardware-design-skills/commit/0f908b225cba66cb342f727473c6af2a07150034))
+
+
+### Documentation
+
+* **design:** phase A-C status after the KiCad 10 runs ([#19](https://github.com/gabrielfrasantos/hardware-design-skills/issues/19)) ([5bd4b2e](https://github.com/gabrielfrasantos/hardware-design-skills/commit/5bd4b2ecb4d6419f3f152579fab5998ef4fa721e))
+* rename to hardware-design-skills, project-agnostic wording, new README ([#24](https://github.com/gabrielfrasantos/hardware-design-skills/issues/24)) ([67ea1bd](https://github.com/gabrielfrasantos/hardware-design-skills/commit/67ea1bd6d42dcecec305a0cc08860ee5f895b155))
+
 ## 0.1.0 (2026-11-22)
 
 

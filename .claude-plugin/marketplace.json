@@ -10,7 +10,7 @@
       "name": "hardware-design",
       "source": "./plugins/hardware-design",
       "description": "Skills and tools for KiCad 10 hardware design, every rule sourced: project and requirements, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly rules with layout-quality gates, power, RF, high-speed and interface layout, copying vendor reference layouts, and design review of schematics and PCBs with a reviewer agent",
-      "version": "0.1.0"
+      "version": "0.1.1"
     }
   ]
 }

@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.1](https://github.com/gabrielfrasantos/claude-hardware-skills/compare/v0.1.0...v0.1.1) (2026-11-22)
+
+
+### Bug Fixes
+
+* **review:** calibration from the first real board review ([#21](https://github.com/gabrielfrasantos/claude-hardware-skills/issues/21)) ([#22](https://github.com/gabrielfrasantos/claude-hardware-skills/issues/22)) ([8458677](https://github.com/gabrielfrasantos/claude-hardware-skills/commit/8458677b15fa4569b3cccd82b0169103f89ceefc))
+* **rules:** JLCPCB PTH pad hole to inner-layer copper is 0.3 mm ([#23](https://github.com/gabrielfrasantos/claude-hardware-skills/issues/23)) ([069aa8e](https://github.com/gabrielfrasantos/claude-hardware-skills/commit/069aa8e80e2ef05dd6c3839de898dae84db4eb90))
+
+
+### Documentation
+
+* **design:** phase A-C status after the KiCad 10 runs ([#19](https://github.com/gabrielfrasantos/claude-hardware-skills/issues/19)) ([5bd4b2e](https://github.com/gabrielfrasantos/claude-hardware-skills/commit/5bd4b2ecb4d6419f3f152579fab5998ef4fa721e))
+
 ## 0.1.0 (2026-11-22)
 
 

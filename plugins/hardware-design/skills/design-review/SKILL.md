@@ -55,9 +55,12 @@ decoupling-distance check is skipped.
 | blocks | `reference-block/refblock.py check` for every `*.block.json` | board, blocks |
 | stock | `hardware-project/jlc_stock.py` | `--bom`, network |
 
-Severity in the findings: shorts, clearance and anything below the fab minimum are BLOCKER. Other hard gates are
-MAJOR. House-style geometry (`pcb-design-rules` §2.3) and soft gates are MINOR. A step that couldn't run is a NOTE
-with the reason.
+Severity in the findings: shorts, clearance and anything below the fab minimum are BLOCKER, and so is a part with
+pads outside the board outline (its copper and holes still go into the Gerbers and the drill file). Other hard gates
+are MAJOR. House-style geometry (`pcb-design-rules` §2.3), the teardrop gates (yield, not a fab requirement) and soft
+gates are MINOR. Mixed part orientation is a NOTE (deliberate rotations are common). A step that couldn't run is a
+NOTE with the reason. Courtyard overlaps shallower than 0.01 mm aren't counted, as KiCad's DRC doesn't count them.
+Calibrated on the first real board review (e-inverted-pendulum, issue #21).
 
 **Boards set up outside the plugin's conventions** report the conventions as findings: net classes not in the
 standard set, teardrops not turned on, a stack-up template that doesn't match. Run `pcb_rules.py apply` and
@@ -72,7 +75,7 @@ standard set, teardrops not turned on, a stack-up template that doesn't match. R
 | `mcu_pins` | MAJOR / BLOCKER | a BOOT pin floating; a VCAP pin without a capacitor to ground; a power-input pin on no net | `mcu-circuit-design` §2–§3 [AN4488][AN5093] |
 | `ratings` | BLOCKER / MINOR / NOTE | a capacitor rated below the voltage across it; a class-II MLCC below 2× (screening default: check the DC-bias curve); a TVS whose standoff is below its net; capacitors with no stated rating | `power-circuit-design` §3, §9 |
 | `orientation` | BLOCKER | a diode forward-biased across a supply (pin names A/K, else KiCad's pad 1 = cathode); a polarized capacitor reversed | `power-circuit-design` §3, §9 |
-| `connector_esd` | MINOR | connector nets with no ESD or TVS part on them (fine for internal connectors) | `interface-layout` §2; `mcu-circuit-design` §6–§7 |
+| `connector_esd` | MINOR | connector nets with no ESD or TVS part on them, directly or through up to 4 series parts (fuse, ferrite, inductor, FET drain–source: a TVS behind reverse-polarity FETs counts); half-bridge outputs (a FET source and a FET drain on the net) count as clamped by the body diodes. Fine for internal connectors | `interface-layout` §2; `mcu-circuit-design` §6–§7 |
 | `dividers` | MAJOR | a resistor divider whose output, into an IC pin, is above that IC's supply | `analog-circuit-design` §5–§6 |
 | `test_points` | NOTE | supply and ground nets without a test point | `hardware-project` (test access; IPC-2221C §3.6, §10.2.3) |
 | `unknown` | NOTE | supply nets with no known voltage | §1 |

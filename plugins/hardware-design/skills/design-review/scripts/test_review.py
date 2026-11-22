@@ -163,9 +163,34 @@ class Checks(unittest.TestCase):
         self.assertEqual(esd, [])                                                # the TVS protects +12V
         no_tvs = [x for x in CLEAN if '"D1"' not in x]
         self.assertEqual(found(board(no_tvs), "connector_esd")[0]["anchor"], "J1")
+        # behind a fuse and a reverse-polarity FET the TVS on +12V still protects the battery pin
+        fet = fp("Q1", "Package_SO:SOIC-8", "AO4805", 8, 14, [("1", 0, 0, "PP_S", "S_1", "passive"),
+                                                              ("2", 0, 1, "PP_G", "G_2", "input"),
+                                                              ("7", 2, 0, "BAT_F", "D_7", "passive"),
+                                                              ("5", 2, 1, "+12V", "D_5", "passive")])
+        fuse = two("F1", "Fuse:Fuse_1206", "4A", 4, 14, "BAT_P", "BAT_F")
+        batt = fp("J2", "Connector:XT30", "battery", 2, 14, [("1", 0, 0, "BAT_P", "", "passive"),
+                                                              ("2", 0, 2, "GND", "", "passive")])
+        self.assertEqual(found(board(CLEAN + [fet, fuse, batt]), "connector_esd"), [])
+        # a half-bridge output (one FET's source, the other's drain) is clamped by the body diodes
+        bridge = fp("Q2", "Package_SO:SOIC-8", "CSD88537ND", 20, 30, [("1", 0, 0, "MOT_P", "S_1", "passive"),
+                                                                        ("5", 0, 1, "MOT_P", "D_5", "passive"),
+                                                                        ("3", 1, 0, "GND", "S_3", "passive"),
+                                                                        ("7", 1, 1, "+12V", "D_7", "passive")])
+        motor = fp("J3", "Connector:Conn_01x01", "motor", 25, 35, [("1", 0, 0, "MOT_P", "", "passive")])
+        self.assertEqual(found(board(no_tvs + [bridge, motor]), "connector_esd")[0]["anchor"], "J1")   # J3 is clamped
+        self.assertEqual(len(found(board(no_tvs + [bridge, motor]), "connector_esd")), 1)
         tp = found(board(CLEAN), "test_points")
         self.assertIn("+12V", tp[0]["message"])
         self.assertNotIn("+3V3", tp[0]["message"])
+
+
+class Severities(unittest.TestCase):
+    def test_gate_severities(self):
+        data = {"failures": ["shorts = 1 (limit 0)", "teardrops_disabled = 9 (limit 0)", "zone_necks = 1 (limit 0)",
+                             "jogs = 1 (limit 0)"], "warnings": []}
+        sev = {x["check"]: x["severity"] for x in review._gate_findings(data, "t", "layout", "r", None)}
+        self.assertEqual(sev, {"shorts": "BLOCKER", "teardrops_disabled": "MINOR", "zone_necks": "MAJOR", "jogs": "MINOR"})
 
 
 class Review(unittest.TestCase):

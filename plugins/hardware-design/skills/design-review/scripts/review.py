@@ -47,6 +47,9 @@ STEPS = ["schematic", "erc", "library", "rules", "netclasses", "placement", "blo
 SAFETY = {"shorts", "clearance_violations", "below_fab_minimum"}
 HOUSE_STYLE = {"any_angle_segments", "right_angle_corners", "track_junctions", "jogs", "diagonal_length_pct",
                "long_diagonals", "short_segment_pct", "segments_per_connection_p90", "detour_p90"}
+# Yield measures, not fab requirements: a hard gate in pcb_rules (house practice), MINOR in a review. JLCPCB doesn't ask
+# for teardrops; they reduce pad cracking and drill breakout (pcb-copper §3).
+YIELD = {"teardrops_disabled", "teardrops_disabled_smd", "teardrops_missing"}
 
 
 def script(skill, name):
@@ -134,13 +137,13 @@ def _gate_findings(data, tool, area, rule, kinds):
             name = row.split(" ")[0]
             if name in SAFETY or name == "DRC":
                 sev = "BLOCKER" if name in SAFETY else "MAJOR"
-            elif name in HOUSE_STYLE:
+            elif name in HOUSE_STYLE or name in YIELD:
                 sev = "MINOR"
             else:
                 sev = "MAJOR" if kind == "hard" else "MINOR"
             ex = examples.get(name) or []
             detail = "; ".join(str(e) for e in ex[:5])
-            label = " (house style)" if name in HOUSE_STYLE else ""
+            label = " (house style)" if name in HOUSE_STYLE else " (yield, not a fab requirement)" if name in YIELD else ""
             found.append(finding(sev, area, name, detail[:200], f"{row}{label}" + (f": {detail}" if detail else ""),
                                  rule, tool))
     return found
@@ -192,6 +195,13 @@ def step_placement(board, assembly, out):
             m = json.load(f)
         for k in ("parts_off_board", "overlaps", "keepout_violations"):
             for item in (m.get("detail", {}).get(k) or [])[:30]:
+                if k == "parts_off_board":       # its pads and holes still go into the Gerbers and the drill file
+                    found.append(finding("BLOCKER", "placement", k, str(item),
+                                         f"{item} has pads outside the board outline: its copper and holes are exported "
+                                         "into the Gerbers and the drill file outside the board (the fab will query or "
+                                         "drop them). Place it, or delete it and record why", "pcb-placement §4",
+                                         "place.py gate"))
+                    continue
                 found.append(finding("MAJOR", "placement", k, str(item), f"{k}: {item}", "pcb-placement §4",
                                      "place.py gate"))
     else:
@@ -204,9 +214,10 @@ def step_placement(board, assembly, out):
         return found + [not_run("assembly", text.strip()[-200:])]
     with open(path) as f:
         dd = json.load(f)["detail"]
+    source = json.load(open(path)).get("spacing_source", assembly)
     for a, b, gap, lim, cls in dd.get("assembly_spacing", []):
         found.append(finding("MAJOR", "assembly", "assembly_spacing", f"{a} / {b}",
-                             f"{a} and {b} {gap} mm apart, below {assembly}'s {lim} mm for {cls}", "pcb-placement §4.1",
+                             f"{a} and {b} {gap} mm apart, below {lim} mm for {cls} ({source})", "pcb-placement §4.1",
                              "dfa.py"))
     for a, b, gap, lim, cls in dd.get("decoupling_exceptions", []):
         found.append(finding("NOTE", "assembly", "decoupling_exception", f"{a} / {b}",
@@ -224,9 +235,11 @@ def step_placement(board, assembly, out):
                                  + ": add 3 or order edge rails with fiducials", "pcb-placement §4.1", "dfa.py"))
     if dd.get("orientation_mixed"):
         rows = dd["orientation_mixed"]
-        found.append(finding("MINOR", "assembly", "orientation_mixed", ", ".join(r[0] for r in rows[:10]),
+        found.append(finding("NOTE", "assembly", "orientation_mixed", ", ".join(r[0] for r in rows[:10]),
                              f"{len(rows)} part(s) off their class's usual orientation: "
-                             + ", ".join(f"{r[0]} {r[1]}°" for r in rows[:10]), "pcb-placement §4.1", "dfa.py"))
+                             + ", ".join(f"{r[0]} {r[1]}°" for r in rows[:10])
+                             + ". Deliberate rotations (rings, arrays, a part turned to its pins) are fine; check the "
+                             "polarity marks in the assembler's CPL preview", "pcb-placement §4.1", "dfa.py"))
     return found
 
 

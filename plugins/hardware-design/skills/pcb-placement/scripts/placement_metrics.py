@@ -98,6 +98,8 @@ def crossings(edges_by_net):
 
 # ------------------------------------------------------------------------------------------------- geometry
 MIN_OVERLAP_MM2 = 0.001   # touching courtyards share an edge (area 0); anything above this is an overlap
+OVERLAP_TOL_MM = 0.01     # overlaps shallower than this aren't counted: KiCad 10.0.3's DRC passed a 0.007 mm courtyard
+                          # overlap (e-inverted-pendulum R515 / R516), so the gate matches it
 
 
 def overlaps(board):
@@ -109,7 +111,9 @@ def overlaps(board):
     for i, (lay, ref, geom) in enumerate(shapes):
         for j in tree.query(geom):
             lay2, ref2, geom2 = shapes[j]
-            if j > i and lay2 == lay and ref2 != ref and geom.intersection(geom2).area > MIN_OVERLAP_MM2:
+            if j > i and lay2 == lay and ref2 != ref and (geom.buffer(-OVERLAP_TOL_MM / 2, join_style=2)
+                                                          .intersection(geom2.buffer(-OVERLAP_TOL_MM / 2, join_style=2))
+                                                          .area > MIN_OVERLAP_MM2):
                 pairs.add(tuple(sorted((ref, ref2))))
     return sorted(pairs)
 

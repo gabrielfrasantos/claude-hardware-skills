@@ -1,6 +1,6 @@
 {
   "name": "hardware-skills",
-  "description": "Claude Code skills for electronics hardware design in KiCad 10, from requirements to fab files",
+  "description": "Agent skills and tools for electronics hardware design in KiCad 10: sourced design rules, schematic as code, placement, fab gates and design review",
   "owner": {
     "name": "Gabriel Santos",
     "url": "https://github.com/gabrielfrasantos"
@@ -9,7 +9,7 @@
     {
       "name": "hardware-design",
       "source": "./plugins/hardware-design",
-      "description": "Skills and tools for KiCad 10 hardware design, every rule sourced: project and requirements, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly rules with layout-quality gates, power, RF, high-speed and interface layout, copying vendor reference layouts, and design review of schematics and PCBs with a reviewer agent",
+      "description": "Sourced rules and tested Python tools for KiCad 10 hardware design: project workflow with requirements traced to firmware, schematic as code, MCU, power and analog circuits, SPICE simulation, placement and pin assignment, net classes, fab and assembly gates, power, RF, high-speed and interface layout, vendor reference layouts, and scripted design review with a reviewer agent",
       "version": "0.1.0"
     }
   ]

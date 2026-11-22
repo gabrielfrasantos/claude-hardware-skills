@@ -1,6 +1,6 @@
 ---
 name: hardware-project
-description: Run a KiCad 10 board project the embedded-pro way - scaffold the repo (CLAUDE.md, requirements traced to firmware, decisions log, phase-gated plan, reviewer agent with a per-board rubric, schgen config, pin needs), check requirement traceability, and produce the review, BOM, JLC stock, JLCPCB and release packages and visual diffs with shared scripts instead of per-repo copies.
+description: Run a KiCad 10 board project with a repeatable, gated workflow - scaffold the repo (CLAUDE.md, requirements traced to firmware, decisions log, phase-gated plan, reviewer agent with a per-board rubric, schgen config, pin needs), check requirement traceability, and produce the review, BOM, JLC stock, JLCPCB and release packages and visual diffs with shared scripts instead of per-repo copies.
 ---
 
 # Hardware project (KiCad 10+)
@@ -11,7 +11,7 @@ Scripts are in `scripts/` (Python 3). The exports need KiCad 10's `kicad-cli` (a
 
 ## 1. Repo layout
 
-Every script runs from anywhere inside a board repo laid out like e-psu, e-foc and e-inverted-pendulum:
+Every script runs from anywhere inside a board repo laid out like this:
 
 ```
 hardware/<board>/<board>.kicad_pro   the KiCad project (several boards: one folder each)
@@ -52,7 +52,7 @@ It writes the files above and **never overwrites** one that exists, so it also f
   - **Errors (exit 1):** duplicate IDs; a requirement without a source or a verification method; an unknown verification method; a cited `D-xxx` that doesn't exist; with `--firmware`, a cited `REQ-*` the firmware repo doesn't contain.
   - **Warnings:** a requirement citing a superseded decision; decisions no requirement cites.
 
-  On e-inverted-pendulum it passes (33 requirements, 61 decisions), with 7 requirements that still cite a superseded decision.
+  On a real robot-controller board it passes (33 requirements, 61 decisions), with 7 requirements that still cite a superseded decision.
 - **`PROJECT_CONTEXT.md`**: the short state of the project, to paste into a new conversation. Update it at every gate.
 
 ## 4. Review
@@ -77,7 +77,7 @@ Write the board-specific part of the rubric in the design guide (its risks, oper
 | `export_release.py [--version v1.0]` | `release/<board>-<version>.zip`: schematic PDF, board-view PDFs, Gerbers and drill, JLC BOM and CPL, for a GitHub Release | kicad-cli |
 | `visual_diff.py --old-root ../base --new-root .` | `diff/`: rendered before/after/overlay of the schematic and layers, for a PR | kicad-cli, PyMuPDF |
 
-These are the scripts e-foc and e-inverted-pendulum carried as copies, taken from the newer pendulum versions. The only change is how they find the repo root and the board (`project.py`), so they run from the plugin unchanged. A board repo deletes its copies and calls these.
+These scripts replace the per-repo copies board projects tend to accumulate. They find the repo root and the board through `project.py`, so they run from the plugin unchanged. A board repo that has its own copies deletes them and calls these.
 
 ## 6. Checklist
 
@@ -88,6 +88,6 @@ These are the scripts e-foc and e-inverted-pendulum carried as copies, taken fro
 
 ## 7. References
 
-- The project pattern of embedded-pro/e-psu-hardware, e-foc-hardware and e-inverted-pendulum-hardware (plan, decisions, requirements traced to firmware, reviewer agents, export scripts).
+- The project pattern (plan, decisions, requirements traced to firmware, reviewer agents, export scripts) was distilled from three real board repos: a power supply, a three-phase motor driver and a robot controller.
 - docs/design.md D12, D27.
 - Not run in this skill's build environment (no KiCad 10, no network): the kicad-cli exports, the JLC stock lookup and the datasheet fetch. Their logic is unchanged from the board repos where they ran.

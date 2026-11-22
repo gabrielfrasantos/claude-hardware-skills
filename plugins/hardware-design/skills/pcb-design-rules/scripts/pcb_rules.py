@@ -84,7 +84,7 @@ GATES = {
     "signal_over_plane_gap_mm": ("soft", 0),  # signal track length over a gap in its reference plane
 }
 ANGLE_TOL = 0.5     # degrees
-DRC_EPSILON = 0.0005  # mm; gaps this close to the limit pass, as in KiCad's DRC (matched on e-psu)
+DRC_EPSILON = 0.0005  # mm; gaps this close to the limit pass, as in KiCad's DRC (matched on a real board)
 JOG_MM = 0.25
 SHORT_MM = 0.5
 DIAG_MM = 2.0       # a 45-degree segment longer than this is a "long diagonal" (house style: diagonals stay short)

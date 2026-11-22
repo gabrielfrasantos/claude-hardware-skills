@@ -99,7 +99,7 @@ def crossings(edges_by_net):
 # ------------------------------------------------------------------------------------------------- geometry
 MIN_OVERLAP_MM2 = 0.001   # touching courtyards share an edge (area 0); anything above this is an overlap
 OVERLAP_TOL_MM = 0.01     # overlaps shallower than this aren't counted: KiCad 10.0.3's DRC passed a 0.007 mm courtyard
-                          # overlap (e-inverted-pendulum R515 / R516), so the gate matches it
+                          # overlap (seen on a real board), so the gate matches it
 
 
 def overlaps(board):

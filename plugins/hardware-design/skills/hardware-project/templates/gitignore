@@ -16,7 +16,7 @@ diff/
 *.rpt
 # Simulation raw output
 simulation/work/
-# Eval work directories (claude-hardware-skills evals/run.py)
+# Eval work directories (hardware-design-skills evals/run.py)
 evals/work/
 # Python
 __pycache__/

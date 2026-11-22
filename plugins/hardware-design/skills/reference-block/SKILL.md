@@ -128,13 +128,13 @@ Re-running is a no-op while the group exists. `--replace` removes the group's co
 
 ## 6. Limits
 
-- **Gerber-only sources** (no layout files) are not supported. Gerbers carry no nets and no parts, and KiCad 10.0's CLI does not import them into a board. The route is the e-inverted-pendulum's `scripts/nfc_reference.py`:
+- **Gerber-only sources** (no layout files) are not supported. Gerbers carry no nets and no parts, and KiCad 10.0's CLI does not import them into a board. The route that has worked is a small board-side script (not shipped here):
   - read the Gerbers, drill and pick-and-place;
   - take nets from copper connectivity, named from the vendor's schematic;
   - fail if an island would need two names.
 - **Back-side parts:** `place` handles them, already on the back. `--footprints` exports front-side lands only: export back-side ones in KiCad's footprint editor.
 - **No mirroring** of a block to the other side, and turns are in steps of 90° only.
-- **Written as text, not through KiCad.** Open the board in KiCad 10 after the first paste and run DRC. The round trip has been checked against the e-inverted-pendulum's TI stage:
+- **Written as text, not through KiCad.** Open the board in KiCad 10 after the first paste and run DRC. The round trip has been checked against a TI BOOST-DRV8711 stage on a real board:
   - every footprint and copied track came back byte-identical;
   - KiCad itself has not loaded a pasted board in this repository's tests.
 
@@ -157,9 +157,9 @@ Re-running is a no-op while the group exists. `--replace` removes the group's co
 - [OPLA] ST, Open Platform License Agreement, LICENSE and RESTRICTIONS clauses. https://www.st.com/opla
 - [TI-NOTICE] TI, *Important Notice and Disclaimer* (published with TI documents and design files). https://software-dl.ti.com/C2000/docs/software_guide/notice.html
 - [JLC-SPACING] JLCPCB, *Minimum spacing for SMD components* (package-pair table). https://jlcpcb.com/help/article/minimum-spacing-for-smd-components
-- Worked examples, embedded-pro/e-inverted-pendulum-hardware `docs/decisions.md`:
-  - D-037: ST MB1355 RF corner;
-  - D-039: ST MB1163 NFC coil, from Gerbers;
-  - D-040: TI BOOST-DRV8711 stage;
-  - D-046: hand-over;
-  - D-052 / D-053: assembly nudges, pours and bends.
+- Worked examples the workflow was built on:
+  - ST MB1355 RF corner;
+  - ST MB1163 NFC coil, from Gerbers;
+  - TI BOOST-DRV8711 stage;
+  - the hand-over to manual layout;
+  - assembly nudges, pours and bends.

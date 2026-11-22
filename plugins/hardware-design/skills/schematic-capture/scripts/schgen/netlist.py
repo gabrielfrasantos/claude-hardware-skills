@@ -4,7 +4,7 @@ compare()           same parts, fields and pin-to-net partition, net names inclu
                     change to prove the circuit did not change (reference: a .net file or a git revision).
 compare_expected()  KiCad's nets against the connectivity schgen recorded (expected.json): same nets, same names,
                     no extra pins.
-Part of the schematic-capture skill; ported from embedded-pro/e-inverted-pendulum-hardware scripts/schgen.
+Part of the schematic-capture skill.
 """
 
 import io

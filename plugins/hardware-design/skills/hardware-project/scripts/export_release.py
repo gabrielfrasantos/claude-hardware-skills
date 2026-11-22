@@ -15,6 +15,10 @@ Per board, stages ./release/<board>/ and zips it to ./release/<board>-<version>.
   - bom.csv                  JLCPCB BOM   (Comment, Designator, Footprint, LCSC Part #)
   - cpl.csv                  JLCPCB CPL   (Designator, Val, Package, Mid X/Y, Rotation, Layer)
 
+Before zipping, the BOM and CPL are checked against the board (assembly.py): every fitted part must be in both,
+every BOM line must be a fitted part, and both files must be well-formed. DNP parts and parts marked
+Assembly = hand are expected to be absent. Each unresolved reference is named and blocks the zip.
+
 Gerbers, drill files and the CPL all use the board's drill/place file origin. The
 BOM comes from scripts/export_bom.py (its output is redirected here; the tracked
 bom/ files are not touched).
@@ -49,6 +53,7 @@ from pathlib import Path
 # ---------------------------------------------------------------------------
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import assembly  # noqa: E402  (BOM/CPL against the board)
 import project  # noqa: E402  (repo root and board, hardware-project skill)
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = project.root()
@@ -175,7 +180,8 @@ def run_export_bom(sch: Path, work: Path, cli: str = "kicad-cli") -> bool:
         return False
     finally:
         export_bom.ROOT, sys.argv = saved_root, saved_argv
-    print("    " + log.getvalue().split(" -> ")[0].strip())
+    for line in log.getvalue().strip().splitlines():
+        print("    " + line.split(" -> ")[0].strip())
     return True
 
 
@@ -253,7 +259,11 @@ def export_cpl(cli: str) -> None:
                    "--exclude-dnp",
                    str(PCB_FILE)],
              "Placement (raw)")
-    if not ok or not raw.exists():
+    if not ok:
+        return
+    if not raw.exists():
+        print(f"    [FAIL] kicad-cli exited 0 but wrote no {raw.name}")
+        FAILED.append("Placement (raw): no file written")
         return
     cpl = STAGE_DIR / "cpl.csv"
     with raw.open(newline="", encoding="utf-8") as fin, \
@@ -272,6 +282,19 @@ def export_cpl(cli: str) -> None:
             ])
     raw.unlink()
     print("\n>>> CPL\n    [OK] -> cpl.csv")
+
+
+def check_assembly() -> None:
+    """Every fitted part in the BOM and the CPL, both files well-formed (assembly.py); any error blocks the zip."""
+    print("\n>>> BOM and CPL against the board")
+    res = assembly.check_package(PCB_FILE, STAGE_DIR / "bom.csv", STAGE_DIR / "cpl.csv")
+    for n in res["notes"]:
+        print(f"    note: {n}")
+    for e in res["errors"]:
+        print(f"    [FAIL] {e}")
+        FAILED.append(f"Assembly package: {e}")
+    if not res["errors"]:
+        print("    [OK] every fitted part is in the BOM and the CPL")
 
 
 def zip_bundle(version: str) -> Path:
@@ -338,6 +361,8 @@ def main() -> None:
     export_gerbers(cli)
     export_bom(cli)
     export_cpl(cli)
+    if not FAILED:
+        check_assembly()
 
     if FAILED:
         sys.exit("\nRelease bundle NOT built; failed steps:\n  " + "\n  ".join(FAILED))

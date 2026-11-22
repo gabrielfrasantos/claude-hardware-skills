@@ -202,5 +202,100 @@ class Scripts(unittest.TestCase):
         self.assertIn("[FAIL]", out.getvalue())
 
 
+def fake_cli(td, body):
+    """An executable standing in for kicad-cli: `body` is Python run with argv; `out` is the -o path."""
+    path = pathlib.Path(td) / "fake-kicad-cli"
+    path.write_text(f"#!{sys.executable}\nimport sys\nargv = sys.argv[1:]\n"
+                    "out = argv[argv.index('-o') + 1] if '-o' in argv else None\n" + body)
+    path.chmod(0o755)
+    return str(path)
+
+
+def fp(ref, attrs="smd", fields=None, pads=True):
+    props = "".join(f'\t\t(property "{k}" "{v}")\n' for k, v in (fields or {}).items())
+    return (f'\t(footprint "lib:R_0402"\n\t\t(layer "F.Cu")\n\t\t(at 0 0)\n\t\t(property "Reference" "{ref}")\n{props}'
+            + (f"\t\t(attr {attrs})\n" if attrs else "")
+            + ('\t\t(pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu"))\n' if pads else "") + "\t)\n")
+
+
+ASSEMBLY_BOARD = ('(kicad_pcb\n\t(version 20260206)\n'
+                  + fp("R1") + fp("R2") + fp("R3", "smd exclude_from_pos_files exclude_from_bom dnp")
+                  + fp("J1", "through_hole", {"Assembly": "hand"})
+                  + fp("G1", "board_only exclude_from_pos_files exclude_from_bom", pads=False) + ")\n")
+BOM_HEAD = "Comment,Designator,Footprint,LCSC Part #\n"
+CPL_HEAD = "Designator,Val,Package,Mid X,Mid Y,Rotation,Layer\n"
+
+
+@unittest.skipIf(os.name == "nt", "fake kicad-cli is a script with a shebang")
+class Assembly(unittest.TestCase):
+    def setUp(self):
+        import assembly
+        self.A = assembly
+        self.td = pathlib.Path(tempfile.mkdtemp())
+        self.pcb = self.td / "b.kicad_pcb"
+        self.pcb.write_text(ASSEMBLY_BOARD)
+
+    def package(self, bom_rows, cpl_rows):
+        (self.td / "bom.csv").write_text(BOM_HEAD + "".join(r + "\n" for r in bom_rows))
+        (self.td / "cpl.csv").write_text(CPL_HEAD + "".join(r + "\n" for r in cpl_rows))
+        return self.A.check_package(self.pcb, self.td / "bom.csv", self.td / "cpl.csv")
+
+    def test_blank_lcsc_is_reported_not_silently_dropped(self):
+        cli = fake_cli(self.td, "open(out, 'w').write('Reference,Value,Footprint,LCSC,MPN,Qty\\n"
+                                "R1,10k,R_0402,C25744,,1\\nR2,1k,R_0402,,,1\\n')\n")
+        import export_release
+        with contextlib.redirect_stdout(io.StringIO()) as log:
+            self.assertTrue(export_release.run_export_bom(self.td / "b.kicad_sch", self.td, cli))
+        self.assertIn("no LCSC number", log.getvalue())
+        self.assertIn("R2", log.getvalue())
+        self.assertNotIn("R2", (self.td / "bom" / "bom_jlc.csv").read_text())
+
+    def test_every_fitted_part_is_in_the_bom_and_the_cpl(self):
+        ok = self.package(["10k,R1,R_0402,C25744", "1k,R2,R_0402,C11702"],
+                          ["R1,10k,R_0402,1,2,0,Top", "R2,1k,R_0402,3,4,90,Bottom", "J1,conn,J,5,6,0,Top"])
+        self.assertEqual(ok["errors"], [])
+        self.assertIn("J1", " ".join(ok["notes"]))                       # hand-fitted: named, not an error
+        bad = self.package(["10k,R1,R_0402,C25744"], ["R1,10k,R_0402,1,2,0,Top"])
+        self.assertEqual(len(bad["errors"]), 2, bad["errors"])
+        self.assertTrue(all("R2" in e for e in bad["errors"]))
+        self.assertFalse(any(r in " ".join(bad["errors"]) for r in ("R3", "J1", "G1")))   # DNP, hand, board-only
+
+    def test_bom_line_for_a_part_not_fitted_on_the_board(self):
+        res = self.package(["10k,\"R1,R3\",R_0402,C25744", "1k,R2,R_0402,C11702"],
+                           ["R1,10k,R_0402,1,2,0,Top", "R2,1k,R_0402,3,4,90,Top"])
+        self.assertEqual(len(res["errors"]), 1, res["errors"])
+        self.assertIn("R3", res["errors"][0])
+
+    def test_unreadable_files_are_errors(self):
+        (self.td / "bom.csv").write_text("Value,Ref\n10k,R1\n")
+        res = self.A.check_package(self.pcb, self.td / "bom.csv", self.td / "missing.csv")
+        self.assertTrue(any("bom.csv" in e and "LCSC Part #" in e for e in res["errors"]), res["errors"])
+        self.assertTrue(any("missing.csv" in e for e in res["errors"]), res["errors"])
+        res = self.package(["10k,R1,R_0402,C25744", "1k,R2,R_0402,C11702"],
+                           ["R1,10k,R_0402,1,2,0,Top", "R2,1k,R_0402,x,4,90,Side"])
+        self.assertTrue(any("R2" in e and "Mid X" in e for e in res["errors"]), res["errors"])
+        self.assertTrue(any("R2" in e and "Layer" in e for e in res["errors"]), res["errors"])
+
+    def test_release_fails_when_the_placement_file_is_missing(self):
+        import export_release as E
+        saved = E.STAGE_DIR, E.PCB_FILE
+        E.STAGE_DIR, E.PCB_FILE = self.td, self.pcb
+        E.FAILED.clear()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                E.export_cpl(fake_cli(self.td, "pass\n"))                # exit 0, no file
+            self.assertEqual(len(E.FAILED), 1)
+            self.assertIn("Placement", E.FAILED[0])
+            E.FAILED.clear()
+            self.package(["10k,R1,R_0402,C25744"], ["R1,10k,R_0402,1,2,0,Top"])
+            with contextlib.redirect_stdout(io.StringIO()):
+                E.check_assembly()
+            self.assertEqual(len(E.FAILED), 2)                          # R2: not in the BOM, not in the CPL
+            self.assertTrue(all("R2" in f for f in E.FAILED))
+        finally:
+            E.STAGE_DIR, E.PCB_FILE = saved
+            E.FAILED.clear()
+
+
 if __name__ == "__main__":
     unittest.main()

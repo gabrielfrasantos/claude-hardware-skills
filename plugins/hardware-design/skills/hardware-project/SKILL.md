@@ -70,11 +70,12 @@ Write the board-specific part of the rubric in the design guide (its risks, oper
 | Script | Output | Needs |
 |---|---|---|
 | `export_review.py [--name B]` | `review_exports/<board>/`: schematic PDF, BOM, ERC, DRC (with parity), Gerbers, board stats, design rules, PCB views | kicad-cli, PyMuPDF |
-| `export_bom.py` | `bom/bom.csv` (stock check), `bom/bom_jlc.csv` (JLC assembly), grouped by LCSC number, DNP left out | kicad-cli |
+| `export_bom.py` | `bom/bom.csv` (stock check), `bom/bom_jlc.csv` (JLC assembly), grouped by LCSC number, DNP left out; fitted parts with no LCSC number are left out and listed by reference | kicad-cli |
 | `jlc_stock.py bom/bom.csv --boards 5` | stock, Basic/Extended, price per line; fails on short stock, an MPN that doesn't match the LCSC number, a footprint that doesn't fit JLCPCB's package for the part (chip size, family, pin count; the D19 check), or a BOM `lifecycle` of NRND/EOL/obsolete/LTB. Checks the stock of `alt_lcsc` second sources and lists extended parts with none. JLCPCB's endpoint has no lifecycle field: record it in the BOM from the manufacturer or distributor | network |
 | `fetch_datasheet.py <LCSC…>` or `--bom` | datasheets into `datasheets/` (gitignored) | network |
-| `export_jlcpcb.py [--stock-check]` | `manufacturing/<board>/`: Gerber zip, JLC BOM and CPL | kicad-cli |
-| `export_release.py [--version v1.0]` | `release/<board>-<version>.zip`: schematic PDF, board-view PDFs, Gerbers and drill, JLC BOM and CPL, for a GitHub Release | kicad-cli |
+| `export_jlcpcb.py [--stock-check]` | `manufacturing/<board>/`: Gerber zip, JLC BOM and CPL; exits 1 when `assembly.py` finds an error | kicad-cli |
+| `export_release.py [--version v1.0]` | `release/<board>-<version>.zip`: schematic PDF, board-view PDFs, Gerbers and drill, JLC BOM and CPL, for a GitHub Release. No zip when a step fails or `assembly.py` finds an error | kicad-cli |
+| `assembly.py <board.kicad_pcb> <bom.csv> <cpl.csv>` | checks an assembly package against the board: every fitted part (pads, not DNP, not excluded from the BOM, not board-only) in the BOM and the CPL, every BOM line a fitted part, columns, LCSC numbers, positions and layers. A part soldered by hand takes the symbol field `Assembly` = `hand` (house convention, D37) and may be absent. Each unresolved reference is named | – |
 | `visual_diff.py --old-root ../base --new-root .` | `diff/`: rendered before/after/overlay of the schematic and layers, for a PR | kicad-cli, PyMuPDF |
 
 These scripts replace the per-repo copies board projects tend to accumulate. They find the repo root and the board through `project.py`, so they run from the plugin unchanged. A board repo that has its own copies deletes them and calls these.

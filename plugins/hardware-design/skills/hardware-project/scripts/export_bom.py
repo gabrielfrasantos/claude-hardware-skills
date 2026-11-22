@@ -2,7 +2,9 @@
 """Export the schematic BOM: bom/bom.csv (stock-check format) and bom/bom_jlc.csv (JLCPCB assembly format).
 
 DNP parts and parts excluded from the BOM (antenna, net ties, test points) are left out.
-Lines are grouped by LCSC number.
+Lines are grouped by LCSC number. Fitted parts with no LCSC number can't be ordered: they are left out of both files
+and listed by reference (a WARNING line), never dropped silently. Mark a part soldered by hand with the symbol field
+Assembly = hand; export_release.py and export_jlcpcb.py then accept it missing from the package (assembly.py).
 
 Usage: export_bom.py [hardware/<board>/<board>.kicad_sch] [--kicad-cli PATH]
 """
@@ -34,7 +36,9 @@ def main():
                    check=True, capture_output=True)
     rows = list(csv.DictReader(io.StringIO(out.read_text(encoding="utf-8"))))
     out.unlink()
-    rows = [r for r in rows if r["LCSC"]]
+    unordered = sorted({ref.strip() for r in rows if not r["LCSC"].strip() for ref in r["Reference"].split(",")
+                        if ref.strip()})
+    rows = [r for r in rows if r["LCSC"].strip()]
     rows.sort(key=lambda r: r["Reference"])
     with open(ROOT / "bom" / "bom.csv", "w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -48,6 +52,9 @@ def main():
         for row in rows:
             writer.writerow([row["Value"], row["Reference"], row["Footprint"].split(":")[-1], row["LCSC"]])
     print(f"{len(rows)} BOM lines, {sum(int(r['Qty']) for r in rows)} placements -> bom/bom.csv, bom/bom_jlc.csv")
+    if unordered:
+        print(f"WARNING {len(unordered)} fitted part(s) with no LCSC number, left out of the BOM: "
+              + ", ".join(unordered))
 
 
 if __name__ == "__main__":

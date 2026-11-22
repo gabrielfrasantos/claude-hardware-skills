@@ -36,10 +36,12 @@ def pin(kind, x, y, angle, name, number):
             f'(number "{number}" {fx()}))\n')
 
 
-def symbol(name, ref, value, footprint, datasheet, description, width, height, left, right, top=(), bottom=()):
+def symbol(name, ref, value, footprint, datasheet, description, width, height, left, right, top=(), bottom=(),
+           hide_names=False):
     """A box symbol: left/right are [(number, name, kind)] from top to bottom, top/bottom from left to right."""
     w, h = width / 2, height / 2
-    s = f'\t(symbol "{name}"\n\t\t(exclude_from_sim no) (in_bom yes) (on_board yes)\n'
+    s = f'\t(symbol "{name}"\n' + ("\t\t(pin_names (hide yes))\n" if hide_names else "")
+    s += '\t\t(exclude_from_sim no) (in_bom yes) (on_board yes)\n'
     s += prop("Reference", ref, -w, h + 1.27)
     s += prop("Value", value, -w, -h - 1.27)
     s += prop("Footprint", footprint, 0, 0, hide=True)
@@ -51,8 +53,9 @@ def symbol(name, ref, value, footprint, datasheet, description, width, height, l
         s += pin(kind, -w - 2.54, round(h - 2.54 - i * 2.54, 2), 0, pname, num)
     for i, (num, pname, kind) in enumerate(right):
         s += pin(kind, w + 2.54, round(h - 2.54 - i * 2.54, 2), 180, pname, num)
+    x0 = -round((len(top) - 1) / 2) * 2.54
     for i, (num, pname, kind) in enumerate(top):
-        s += pin(kind, round(-w + 2.54 + i * 2.54, 2), h + 2.54, 270, pname, num)
+        s += pin(kind, round(x0 + i * 2.54, 2), h + 2.54, 270, pname, num)
     for i, (num, pname, kind) in enumerate(bottom):
         s += pin(kind, round(-w + 2.54 + i * 2.54, 2), -h - 2.54, 90, pname, num)
     s += '\t\t)\n\t\t(embedded_fonts no)\n\t)\n'
@@ -65,16 +68,18 @@ DRV8711 = symbol(
     "https://www.ti.com/lit/ds/symlink/drv8711.pdf",
     "Stepper pre-driver with SPI, 8-52 V, external N-FETs, HTSSOP-38 (TI SLVSC40H §5 Pin Functions)",
     width=25.4, height=55.88,
-    left=[("4", "VM", "power_in"), ("1", "CP1", "passive"), ("2", "CP2", "passive"), ("3", "VCP", "passive"),
+    left=[("1", "CP1", "passive"), ("2", "CP2", "passive"), ("3", "VCP", "passive"),
           ("6", "V5", "power_out"), ("7", "VINT", "power_out"), ("8", "SLEEPn", "input"), ("9", "RESET", "input"),
           ("10", "STEP/AIN1", "input"), ("11", "DIR/AIN2", "input"), ("12", "BIN1", "input"), ("13", "BIN2", "input"),
           ("14", "SCLK", "input"), ("15", "SDATI", "input"), ("16", "SCS", "input"), ("17", "SDATO", "open_collector"),
           ("18", "FAULTn", "open_collector"), ("19", "STALLn/BEMFVn", "open_collector"), ("20", "BEMF", "output")],
     right=[("36", "A1HS", "output"), ("37", "AOUT1", "passive"), ("35", "A1LS", "output"), ("31", "A2HS", "output"),
-           ("30", "AOUT2", "passive"), ("32", "A2LS", "output"), ("34", "AISENP", "passive"), ("33", "AISENN", "passive"),
+           ("30", "AOUT2", "passive"), ("32", "A2LS", "output"), ("34", "AISENP", "passive"),
            ("27", "B1HS", "output"), ("28", "BOUT1", "passive"), ("26", "B1LS", "output"), ("22", "B2HS", "output"),
-           ("21", "BOUT2", "passive"), ("23", "B2LS", "output"), ("25", "BISENP", "passive"), ("24", "BISENN", "passive")],
-    bottom=[("5", "GND", "power_in"), ("29", "GND", "passive"), ("38", "GND", "passive"), ("39", "GND", "passive")])
+           ("21", "BOUT2", "passive"), ("23", "B2LS", "output"), ("25", "BISENP", "passive")],
+    top=[("4", "VM", "power_in")],
+    bottom=[("5", "GND", "power_in"), ("29", "GND", "passive"), ("38", "GND", "passive"), ("39", "GND", "passive"),
+            ("33", "AISENN", "passive"), ("24", "BISENN", "passive")])
 
 MLPF = symbol(
     "MLPF-WB55-01E3", "FL", "MLPF-WB55-01E3",
@@ -84,7 +89,7 @@ MLPF = symbol(
     width=10.16, height=7.62,
     left=[("A3", "IN", "passive")], right=[("A1", "OUT", "passive")],
     bottom=[("B3", "GND1", "passive"), ("B2", "GND2", "passive"), ("B1", "GND3", "passive")],
-    top=[("A2", "GND4", "passive")])
+    top=[("A2", "GND4", "passive")], hide_names=True)
 
 LIB = ('(kicad_symbol_lib\n\t(version 20251024)\n\t(generator "make_library.py")\n\t(generator_version "10.0")\n'
        + DRV8711 + MLPF + ')\n')

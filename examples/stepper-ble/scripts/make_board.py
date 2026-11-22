@@ -6,6 +6,11 @@
     python3 scripts/make_board.py update     after a schematic change: nets, values and fields from the netlist;
                                              new parts are parked, removed ones deleted, nothing placed moves
     python3 scripts/make_board.py anchors    (re)place and lock every anchor below on an existing board
+    python3 scripts/make_board.py place      anchors, then every other part next to the pad it serves: on the side
+                                             of its partner (a part on the same schematic sheet, an IC first,
+                                             over the net with the fewest pads), pointing radially, shared pad
+                                             toward the pin; it slides along the side or moves out a ring until
+                                             it clears everything by 0.35 mm
     python3 scripts/make_board.py zones      ground planes on In1/In2, pours for the PWR_3A / GND_3A nets around
                                              their pads, the antenna keep-outs; then kicad-cli refills them
 
@@ -29,27 +34,31 @@ SYSTEM_FP = pathlib.Path("/usr/share/kicad/footprints")
 
 X0, Y0, W, H = 100.0, 100.0, 80.0, 60.0
 ANCHORS = {
-    "J201": (112.0, 106.5, 0, "F"),
-    "J301": (127.0, 154.0, 180, "F"),
-    "J601": (163.0, 155.2, 0, "F"),
-    "AE501": (171.0, 106.5, 0, "F"),
-    "U401": (165.0, 124.0, 180, "F"),
-    "U301": (137.0, 136.0, 180, "F"),
+    "J201": (112.0, 106.5, 0, "F"), "F201": (124.5, 104.0, 0, "F"), "D201": (124.5, 109.0, 0, "F"),
+    "Q201": (117.0, 116.5, 0, "F"), "D202": (111.5, 116.5, 0, "F"), "R201": (111.5, 119.5, 0, "F"),
+    "C201": (118.5, 123.5, 0, "F"), "C202": (127.5, 123.5, 90, "F"),
+    "C306": (124.5, 129.5, 0, "F"), "C307": (112.5, 129.5, 0, "F"),
     "Q301": (127.5, 134.0, 0, "F"), "Q302": (127.5, 140.5, 0, "F"),
     "Q303": (121.5, 134.0, 0, "F"), "Q304": (121.5, 140.5, 0, "F"),
     "Q305": (115.5, 134.0, 0, "F"), "Q306": (115.5, 140.5, 0, "F"),
     "Q307": (109.5, 134.0, 0, "F"), "Q308": (109.5, 140.5, 0, "F"),
     "R301": (124.5, 145.8, 0, "F"), "R302": (112.5, 145.8, 0, "F"),
-    "C306": (124.5, 129.5, 0, "F"), "C307": (112.5, 129.5, 0, "F"),
     "RT301": (118.5, 137.25, 90, "F"),
-    "U201": (146.0, 119.0, 0, "F"), "L201": (152.5, 119.0, 0, "F"),
-    "F201": (125.5, 104.0, 0, "F"), "D201": (125.5, 109.0, 0, "F"), "C201": (138.0, 108.0, 0, "F"),
-    "C202": (146.5, 108.0, 90, "F"),
-    "Q201": (117.0, 116.5, 0, "F"), "D202": (111.5, 116.5, 0, "F"), "R201": (111.5, 119.5, 0, "F"),
+    "J301": (127.0, 154.0, 180, "F"),
+    "U301": (137.0, 136.0, 180, "F"),
+    "U201": (142.0, 112.0, 0, "F"), "L201": (149.5, 112.0, 0, "F"),
+    "D203": (147.0, 119.0, 0, "F"), "D204": (147.0, 123.0, 0, "F"),
+    "U202": (153.5, 121.0, 0, "F"),
+    "U401": (164.0, 128.0, 180, "F"),
+    "AE501": (171.0, 106.5, 0, "F"),
+    "J601": (163.0, 155.2, 0, "F"), "U601": (163.0, 146.0, 0, "F"),
+    "J602": (151.0, 147.0, 0, "F"), "SW601": (175.0, 146.0, 0, "F"),
+    "D601": (150.0, 153.0, 0, "F"), "D602": (150.0, 157.0, 0, "F"),
     "H601": (104.0, 104.0, 0, "F"), "H602": (104.0, 156.0, 0, "F"),
     "H603": (176.0, 156.0, 0, "F"), "H604": (176.0, 114.0, 0, "F"),
     "FID601": (104.0, 128.0, 0, "F"), "FID602": (150.0, 104.0, 0, "F"), "FID603": (176.0, 140.0, 0, "F"),
 }
+PARTNER = {"R309": "U401", "C309": "U401", "R202": "U401", "R203": "U401", "C203": "U401"}
 ANTENNA_KEEPOUT = (157.0, 100.0, 168.6, 110.0)
 ANTENNA_NO_PARTS = (155.0, 107.5, 170.0, 111.0)
 POUR_CLASSES = re.compile(r"^(PWR|GND)_(\d+(?:[.p]\d+)?)A")
@@ -236,6 +245,115 @@ def cmd_anchors():
     print(f"anchors: {len(ANCHORS)} placed and locked")
 
 
+def _box(fp):
+    b = fp.GetBoundingBox(False)
+    return (pcbnew.ToMM(b.GetLeft()), pcbnew.ToMM(b.GetTop()), pcbnew.ToMM(b.GetRight()), pcbnew.ToMM(b.GetBottom()))
+
+
+def _hits(a, b, gap):
+    return a[0] < b[2] + gap and b[0] < a[2] + gap and a[1] < b[3] + gap and b[1] < a[3] + gap
+
+
+def _sheet(ref):
+    m = re.search(r"(\d)\d\d$", ref)
+    return m.group(1) if m else ""
+
+
+def cmd_place():
+    """Anchors where ANCHORS says; every other part attached next to the pad it serves (see the module doc)."""
+    board = pcbnew.LoadBoard(str(PCB))
+    fps = {fp.GetReference(): fp for fp in board.GetFootprints()}
+    for fp in fps.values():
+        fp.SetLocked(False)
+    for ref, at in ANCHORS.items():
+        place(fps[ref], *at, board)
+        fps[ref].SetLocked(True)
+    placed = set(ANCHORS)
+    boxes = {r: _box(fps[r]) for r in placed}
+    inner = (X0 + 0.6, Y0 + 0.6, X0 + W - 0.6, Y0 + H - 0.6)
+
+    def nets(fp):
+        return {p.GetNetname() for p in fp.Pads() if p.GetNetname() and p.GetNetname() != "GND"}
+
+    count = {}
+    for f in fps.values():
+        for p in f.Pads():
+            count[p.GetNetname()] = count.get(p.GetNetname(), 0) + 1
+
+    def target_for(ref):
+        mine = nets(fps[ref])
+        best = None
+        for other in ([PARTNER[ref]] if ref in PARTNER else placed):
+            shared = mine & nets(fps[other])
+            if not shared:
+                continue
+            net = min(shared, key=lambda n: (count[n], n))
+            rank = (_sheet(other) != _sheet(ref), not other.startswith("U"), count[net], other)
+            if best is None or rank < best[0]:
+                best = (rank, other, net)
+        return best
+
+    def fits(fp):
+        b = _box(fp)
+        if not (inner[0] <= b[0] and b[2] <= inner[2] and inner[1] <= b[1] and b[3] <= inner[3]):
+            return None
+        if _hits(b, ANTENNA_NO_PARTS, 0) or any(_hits(b, o, 0.35 if r in ANCHORS else 0.9) for r, o in boxes.items()):
+            return None
+        return b
+
+    used = {}
+    pending = [r for r in fps if r not in placed and 2 <= fps[r].GetPadCount() <= 4]
+    while pending:
+        scored = [(target_for(r), r) for r in pending]
+        scored = [(tr, r) for tr, r in scored if tr]
+        if not scored:
+            break
+        scored.sort(key=lambda s: (s[0][0], s[1]))
+        (rank, owner, net), ref = scored[0]
+        pending.remove(ref)
+        ofp, fp = fps[owner], fps[ref]
+        opad = min((p for p in ofp.Pads() if p.GetNetname() == net),
+                   key=lambda p: (used.get((owner, p.GetNumber()), 0), (p.GetPosition() - ofp.GetPosition()).EuclideanNorm()))
+        used[(owner, opad.GetNumber())] = used.get((owner, opad.GetNumber()), 0) + 1
+        px, py = pcbnew.ToMM(opad.GetPosition().x), pcbnew.ToMM(opad.GetPosition().y)
+        ob = boxes[owner]
+        cx, cy = (ob[0] + ob[2]) / 2, (ob[1] + ob[3]) / 2
+        horiz = abs(px - cx) / max(ob[2] - ob[0], 0.1) >= abs(py - cy) / max(ob[3] - ob[1], 0.1)
+        sign = 1 if ((px - cx) if horiz else (py - cy)) >= 0 else -1
+        done = None
+        for ring in range(8):
+            for lat in (0, 0.8, -0.8, 1.6, -1.6, 2.4, -2.4, 3.2, -3.2, 4.0, -4.0, 4.8, -4.8, 5.6, -5.6, 6.4, -6.4):
+                for rot in ((0, 180) if horiz else (90, 270)):
+                    fp.SetOrientationDegrees(rot)
+                    fp.SetPosition(pcbnew.VECTOR2I(0, 0))
+                    b = _box(fp)
+                    half = (b[2] - b[0]) / 2 if horiz else (b[3] - b[1]) / 2
+                    edge = (ob[2] if sign > 0 else ob[0]) if horiz else (ob[3] if sign > 0 else ob[1])
+                    out = edge + sign * ((0.75 if owner.startswith("U") else 0.45) + half + ring * 1.8)
+                    x, y = (out, py + lat) if horiz else (px + lat, out)
+                    fp.SetPosition(pcbnew.VECTOR2I(mm(x), mm(y)))
+                    got = fits(fp)
+                    if got is None:
+                        continue
+                    mine = [q for q in fp.Pads() if q.GetNetname() == net]
+                    rest = [q for q in fp.Pads() if q.GetNetname() != net]
+                    dist = lambda q: (pcbnew.ToMM(q.GetPosition().x) - px) ** 2 + (pcbnew.ToMM(q.GetPosition().y) - py) ** 2
+                    if not rest or min(map(dist, mine)) <= min(map(dist, rest)):
+                        done = got
+                        break
+                if done:
+                    break
+            if done:
+                break
+        if done is None:
+            print(f"  {ref}: no spot next to {owner} ({net}); left parked")
+            continue
+        placed.add(ref)
+        boxes[ref] = done
+    board.Save(str(PCB))
+    print(f"placed: {len(ANCHORS)} anchors locked, {len(placed) - len(ANCHORS)} parts attached to their pads")
+
+
 ZONE_NS = __import__("uuid").UUID("0d6c5b8e-7b1f-4e43-9a55-1c8f3a8a2f10")
 COPPER = '"F.Cu" "B.Cu" "In1.Cu" "In2.Cu"'
 
@@ -322,7 +440,7 @@ def cmd_zones():
 
 
 if __name__ == "__main__":
-    cmds = {"create": cmd_create, "update": cmd_update, "anchors": cmd_anchors, "zones": cmd_zones}
+    cmds = {"create": cmd_create, "update": cmd_update, "anchors": cmd_anchors, "place": cmd_place, "zones": cmd_zones}
     if len(sys.argv) != 2 or sys.argv[1] not in cmds:
         sys.exit(__doc__)
     cmds[sys.argv[1]]()

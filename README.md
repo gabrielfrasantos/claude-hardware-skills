@@ -54,7 +54,7 @@ logged.
 | | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Builds an ngspice + Python suite from the schematic: loop stability, corners, transients, protection, noise, and a report |
 | Layout | [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Places unlocked parts around the owner's locked anchors with simulated annealing, gates the result against assembly rules, and assigns MCU pins from the placement |
 | | [`pcb-copper`](plugins/hardware-design/skills/pcb-copper/SKILL.md) | Applies one standard net-class set (`PWR_4A`, `GND`, `DIFF_90`, `RF_50`, …). Sizes widths from current and clearances from voltage (IPC-2152 / IPC-2221) |
-| | [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Sets board rules from fab profiles (JLCPCB, Seeed), turns on teardrops, records the stack-up, and gates shorts, clearance, geometry and copper |
+| | [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Sets board rules from fab profiles (JLCPCB, Seeed), turns on teardrops, records the stack-up, and gates shorts, clearance, geometry and copper. Keeps the silkscreen to readable references only |
 | | [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Covers hot loops, gate drive, high-current copper, Kelvin sensing, thermal and isolation |
 | | [`rf-layout`](plugins/hardware-design/skills/rf-layout/SKILL.md) | Covers 2.4 GHz radios (BLE, 802.15.4, Wi-Fi), chip-down or module: 50 Ω lines, matching, antennas, coexistence, certification |
 | | [`high-speed-digital-layout`](plugins/hardware-design/skills/high-speed-digital-layout/SKILL.md) | Covers QSPI, SDRAM, DDR, SD/eMMC, RGB/MIPI/LVDS displays, cameras and clocks |

@@ -198,6 +198,8 @@ owner and KiCad's router. **Owner decision.**
 | Altium schematics, KiCad < 10 boards in review | `design-review` §6 |
 | Board B's `Vdrive` voltage | 12 V was an assumption for the review eval |
 | Headless netlist to board | `kicad-cli` 10 has no *Update PCB from Schematic*; the example (`examples/stepper-ble/scripts/make_board.py`) uses `pcbnew`. A text-based equivalent in the plugin would close the headless flow (D22) |
+| Attach placement in the plugin | the example's `make_board.py place` (parts at the pins they serve, one decoupling capacitor per supply pin, a lane for the reference) as a text-based `place.py attach`, so any board gets it without `pcbnew` |
+| Bulk capacitors in the decoupling metric | `decap_p90` measures every capacitor to the nearest IC on its net; a bridge's bulk capacitor is right at its stage and still counts as far |
 | Assembly spacing in the optimizer | `place.py optimize` avoids overlaps but not the assembler's package-pair spacing; on the example it put two 0402s 0.4 mm from the QFN, which only the gate caught |
 | kicad-bot on unrouted boards | it counts unconnected items as DRC errors; an "allow unrouted" option would let the example gate DRC there too |
 

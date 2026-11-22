@@ -26,13 +26,14 @@ flowchart LR
 | Scaffold | `scaffold.py` (hardware-project) | this repo's layout, AGENTS.md, plan, reviewer agent |
 | Parts | JLCPCB parts search, datasheets | every BOM line with LCSC + MPN, in stock for 5 boards (`jlc_stock.py`) |
 | Project library | `scripts/make_library.py` | DRV8711 and MLPF-WB55-01E3 symbols transcribed from SLVSC40H and DS12804; two project footprints |
-| Schematic | `schgen.py build / check` (schematic-capture) | 5 sheets, 102 parts, 72 nets; KiCad's netlist matches the intended one; ERC 0 |
+| Schematic | `schgen.py build / check` (schematic-capture) | 5 sheets drawn as circuits (wires along the signal flow, a net-class table per sheet), 102 parts, 72 nets; no layout lint, overlapping text included; KiCad's netlist matches the intended one; ERC 0 at every severity |
 | Net classes | `netclasses.py assign / apply / check` (pcb-copper) | 72 nets in 13 standard classes; PASS |
-| Board | `scripts/make_board.py` | outline, 35 locked anchors (D-007), parts parked, zones |
-| Placement | `place.py optimize` (pcb-placement) | 3 seeds, the best refined: valid, 1349 mm ratsnest, 202 crossings; assembly gate passes with `--enforce` |
-| Pins | `pins.py assign / check` | 17 MCU functions on pins; converged after three passes, frozen (D-008) |
+| Board | `scripts/make_board.py` | outline, zones, 43 locked anchors (D-007) |
+| Placement | `make_board.py place`, `place.py gate` (pcb-placement) | 58 parts attached at the pins they serve (D-012); valid, 1540 mm ratsnest, 203 crossings, assembly spacing 0 with `--enforce` |
+| Pins | `pins.py assign / check` | 17 MCU functions on pins; assignment and placement at a fixed point, frozen (D-008) |
+| Silkscreen | `silk.py apply / check` (pcb-design-rules) | references only, 1.0 mm, all 102 placed clear of pads, outlines and each other; PASS; KiCad DRC: 0 silkscreen findings (D-013) |
 | Fab rules | `pcb_rules.py apply / check` (pcb-design-rules) | JLCPCB rules, teardrops, stack-up; 0 shorts, 0 clearance errors; fails only on the unjoined pours (expected, D-011) |
-| Review | `review.py` (design-review) | 0 BLOCKER, 2 MAJOR (both from being unrouted), 10 MINOR, 11 NOTE: below |
+| Review | `review.py` (design-review) | 0 BLOCKER, 2 MAJOR (both from being unrouted), 9 MINOR, 4 NOTE: below |
 | Traceability | `trace.py` | 12 requirements, 11 decisions; PASS |
 
 ### What the tools caught that would have shipped otherwise
@@ -44,6 +45,9 @@ flowchart LR
 - **The NTC placed by the MCU.** It measures the FETs, but its only signal net goes to the ADC, so the optimizer put it
   0.4 mm from the QFN, which is also inside JLCPCB's assembly spacing (D-007).
 - **Wrong antenna.** The Pulse W3011 looked right in a parts search; its datasheet says 1.575 GHz GNSS (D-004).
+- **A crowded first layout.** The optimizer's placement scattered the input chain, left the bulk capacitor at the
+  connector and gave references no room: KiCad's DRC found 199 silkscreen overlaps. Attaching each part at the pin it
+  serves, and the bulk capacitor at the bridges, fixed both (D-012, D-013).
 
 ### Open review findings
 
@@ -53,7 +57,6 @@ From `review.py` on the placed board. The owner fixes or accepts each one before
 |---|---|
 | DRC unconnected items; VM and GND_IN pours not joined | expected until routed (D-011) |
 | No ground stitching vias | routing step |
-| U401 pin 20 (VDD) 6.8 mm from its nearest capacitor (limit 6 mm) | open: move C402 at routing |
 | 50 V capacitors at 30 V (C202, C206, C207, C305, C306, C307) | open: check each DC-bias curve |
 | USB CC lines and the TC2030 have no ESD part | accepted: CC is 5.1 kohm to ground; TC2030 is a bench connector |
 | 15 supply nets without a test point | open (requirements, open items) |
@@ -74,6 +77,7 @@ python3 scripts/make_board.py zones                                 # planes, po
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/stepper-ble/stepper-ble.kicad_pcb --allow-unrouted \
         --gate zone_islands=2                                      # the two pours routing will join (D-011)
 python3 $HW/pcb-copper/scripts/netclasses.py check hardware/stepper-ble/stepper-ble.kicad_pcb
+python3 $HW/pcb-design-rules/scripts/silk.py check hardware/stepper-ble/stepper-ble.kicad_pcb
 python3 $HW/pcb-placement/scripts/place.py gate hardware/stepper-ble/stepper-ble.kicad_pcb --enforce \
         --baseline hardware/stepper-ble/placement-baseline.json
 python3 $HW/pcb-placement/scripts/pins.py check hardware/stepper-ble/stepper-ble.kicad_pcb --mcu U401 --needs pin-data/pin-needs.txt
@@ -81,9 +85,9 @@ python3 $HW/schematic-capture/scripts/library_check.py hardware/stepper-ble/step
 python3 $HW/design-review/scripts/review.py hardware/stepper-ble --voltage VM=30 --voltage VIN_RAW=30
 ```
 
-From scratch: delete `stepper-ble.kicad_pcb`, then `make_board.py create`, `zones`, `place.py optimize` (try
-`--seed 1..3`), `pins.py assign --out pin-data/pinmap.txt`, rebuild the schematic, `make_board.py update`, and
-`place.py optimize --refine`. CI runs the commands above on every pull request (`.github/workflows/ci.yml`,
+From scratch: delete `stepper-ble.kicad_pcb`, then `make_board.py create` and `place`; then
+`pins.py assign --out pin-data/pinmap.txt`, rebuild the schematic, `make_board.py update` and `place`, until the pin
+map stops changing; then `silk.py apply`, `make_board.py zones` and `pcb_rules.py apply`. CI runs the commands above on every pull request (`.github/workflows/ci.yml`,
 job `example-board`).
 
 ## Not checked

@@ -79,6 +79,7 @@ jobs:
         run: |
           $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2
           $PY $HW/pcb-copper/scripts/netclasses.py check $B
+          $PY $HW/pcb-design-rules/scripts/silk.py check $B
           $PY $HW/pcb-placement/scripts/place.py gate $B --enforce --baseline hardware/stepper-ble/placement-baseline.json
           $PY $HW/pcb-placement/scripts/pins.py check $B --mcu U401 --needs pin-data/pin-needs.txt
           $PY $HW/schematic-capture/scripts/library_check.py $B

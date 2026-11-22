@@ -184,10 +184,18 @@ A script can measure the metrics: per net, the segment count, vias, length/Manha
 
 ### 6.2 Gotchas
 - **Saving a board from SWIG Python (KiCad 7) rewrites the `.kicad_pro` and drops net-class patterns.** Re-write the net classes after each save. Run DRC in a **fresh process**, because KiCad caches the project in memory.
-- **Refill zones before DRC and before plotting:** `pcbnew.ZONE_FILLER(board).Fill(board.Zones())`.
+- **Refill zones before DRC and before plotting:** `kicad-cli pcb drc --refill-zones --save-board`. `pcbnew.ZONE_FILLER(board).Fill(board.Zones())` segfaulted on KiCad 10.0.8.
+- **SWIG traps seen on KiCad 10.0.8 (2026-11-22):**
+  - `ZONE.SetOutline(poly)` crashes on save unless `poly.thisown = False` first; the zone takes ownership.
+  - `board.Remove(footprint)` segfaults on save; use `board.Delete(footprint)`.
+  - The stack-up isn't exposed to Python. Write the `(stackup …)` block into the saved file as text.
+  - Footprint fields: `fp.SetField(name, value)`; `GetFieldByName` isn't there.
 - Never delete items while iterating connectivity. Collect them first, dedupe by `m_Uuid.AsString()`, then call `board.Delete()`.
 - Some vendor footprints set pads to "no zone connection" (e.g., SO-8FL drain pads), so pours silently skip them. Check `pad.GetZoneConnection()` and set INHERITED.
-- Check footprint drills, annular rings and pad-to-pad gaps against the fab before routing (e.g., thermal vias drawn at 0.25 mm drill on a 0.3 mm process).
+- Check footprint drills, annular rings and pad-to-pad gaps against the fab before routing (e.g., thermal vias drawn at 0.25 mm drill on a 0.3 mm process). Two found in KiCad 10's libraries (2026-11-22):
+  - the TI NexFET VSON-8 land leaves 0.14 mm between gate and source, under JLCPCB's 0.15 mm design clearance; TI's own land pattern in the MOSFET's datasheet doesn't;
+  - the TI SWRA117D antenna's via pad has a 0.10 mm annular ring, under JLCPCB's 0.15 mm.
+  Copy the footprint into the project library and fix it there, rather than relaxing the rules.
 - Zone priority (`SetAssignedPriority`) decides which pour wins where they overlap. Set it explicitly.
 
 ### 6.3 Reading the user's placement

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """scaffold.py: start a board repo the way the hardware-design plugin expects (or fill in what an existing one lacks).
 
-    scaffold.py <repo dir> --name my-board --title "my-board: what it is" --firmware owner/repo
+    scaffold.py <repo dir> --name my-board --title "my-board: what it is" [--firmware owner/repo]
                 [--fab jlcpcb] [--layers 4] [--owner NAME] [--date YYYY-MM-DD] [--dry-run]
 
 Writes, never overwriting a file that exists (it lists the ones it skips):
@@ -13,11 +13,13 @@ Writes, never overwriting a file that exists (it lists the ones it skips):
     docs/requirements.md, decisions.md, plan.md, design-guide.md, bringup.md
     pin-data/pin-needs.txt                     the firmware's pin needs (pcb-placement pins.py)
     scripts/schgen/config.py, design/          the schematic as code (schematic-capture)
-    hardware/<name>/, simulation/, bom/        empty folders
-Then: create the KiCad project in hardware/<name>/ (File > New Project, <name>.kicad_pro), fill in Phase 0.
+    hardware/<name>/<name>.kicad_pro           a minimal KiCad project; KiCad fills in its defaults on first save
+    simulation/, bom/                          empty folders
+Then fill in Phase 0. --firmware names the firmware repo that requirements trace to; without it, "none".
 """
 import argparse
 import datetime
+import json
 import os
 import re
 import sys
@@ -65,6 +67,16 @@ def scaffold(repo, values, dry_run=False):
                 with open(dst, "w", encoding="utf-8") as fh:
                     fh.write(text)
             written.append(os.path.relpath(dst, repo))
+    pro = os.path.join(repo, "hardware", values["NAME"], values["NAME"] + ".kicad_pro")
+    if os.path.exists(pro):
+        skipped.append(os.path.relpath(pro, repo))
+    else:
+        if not dry_run:
+            os.makedirs(os.path.dirname(pro), exist_ok=True)
+            with open(pro, "w", encoding="utf-8") as fh:
+                json.dump({"meta": {"filename": os.path.basename(pro), "version": 3}}, fh, indent=2)
+                fh.write("\n")
+        written.append(os.path.relpath(pro, repo))
     for d in (f"hardware/{values['NAME']}", "simulation", "bom"):
         path = os.path.join(repo, d)
         if not os.path.isdir(path):
@@ -79,7 +91,7 @@ def main(argv=None):
     ap.add_argument("repo")
     ap.add_argument("--name", required=True, help="board name, kebab-case: hardware/<name>/<name>.kicad_pro")
     ap.add_argument("--title", required=True)
-    ap.add_argument("--firmware", required=True, help="the firmware repo (owner/repo), the requirement source")
+    ap.add_argument("--firmware", default="none", help="the firmware repo (owner/repo) requirements trace to")
     ap.add_argument("--fab", default="jlcpcb", help="a pcb-design-rules profile (jlcpcb, seeed, or several: jlcpcb,seeed)")
     ap.add_argument("--layers", type=int, default=4)
     ap.add_argument("--owner", default="")
@@ -100,7 +112,7 @@ def main(argv=None):
         print("  +", w)
     for s in skipped:
         print("  = kept", s)
-    print(f"next: KiCad > File > New Project at hardware/{a.name}/{a.name}.kicad_pro; then Phase 0 in docs/plan.md")
+    print("next: Phase 0 in docs/plan.md")
     return 0
 
 

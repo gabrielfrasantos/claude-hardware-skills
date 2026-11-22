@@ -40,7 +40,8 @@ python3 scripts/review.py <project dir | .kicad_pro> --voltage VBAT=12.6 --volta
 
 **Before layout**, a schematic alone can be reviewed: with `kicad-cli`, `review.py` exports the netlist and runs the
 schematic checks and ERC; or pass a netlist with `--netlist`. Without a board there are no positions, so the
-decoupling-distance check is skipped.
+decoupling-distance check is skipped. A placed board that is not routed yet takes `--allow-unrouted`: unconnected
+items are then not findings (passed on to `pcb_rules.py check`). Shorts and clearance violations still are.
 
 ## 2. What runs
 

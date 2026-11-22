@@ -6,8 +6,8 @@ from parts import part
 def build(project, values):
     sh = Sheet(project, 2, "supplies", "Logic supplies", paper="A4")
     sh.desc = ["U201 LMR36510 5 V buck from VM", "D201/D202 OR 5V_BUCK with VBUS -> +5V", "U202 AP2112K -> +3V3"]
-    sh.box(15.24, 33.02, 146.05, 96.52, "5 V buck (LMR36510, SNVSBD7B §8.2)")
-    sh.box(148.59, 33.02, 228.6, 96.52, "OR-ing and 3.3 V LDO")
+    sh.box(15.24, 33.02, 151.13, 96.52, "5 V buck (LMR36510, SNVSBD7B §8.2)")
+    sh.box(153.67, 33.02, 243.84, 96.52, "OR-ing and 3.3 V LDO")
 
     c_in = part(sh, "C4u7_50", "C201", (30.48, 53.34))
     c_hf = part(sh, "C220n50", "C202", (43.18, 53.34))
@@ -46,26 +46,26 @@ def build(project, values):
     c_o2 = part(sh, "C22u", "C206", (142.24, 62.23))
     sh.path("5V_BUCK", [r_fbt["2"], (124.46, 73.66), (124.46, 58.42)])
 
-    d_buck = part(sh, "SS34", "D201", (160.02, 58.42), rot=180)
-    d_usb = part(sh, "SS34", "D202", (160.02, 45.72), rot=180)
+    d_buck = part(sh, "SS34", "D201", (170.18, 58.42), rot=180)
+    d_usb = part(sh, "SS34", "D202", (170.18, 45.72), rot=180)
     sh.rail("5V_BUCK", 58.42, [lsw["2"], (124.46, 58.42), c_o1["1"], c_o2["1"], d_buck["2"]])
     sh.net(c_o1["2"], "GND")
     sh.net(c_o2["2"], "GND")
     sh.net(d_usb["2"], "VBUS")
 
-    ldo = part(sh, "LDO", "U202", (209.55, 60.96))
-    c5 = part(sh, "C4u7", "C209", (172.72, 62.23))
-    c_li = part(sh, "C1u", "C207", (185.42, 62.23))
-    flag = sh.flag("+5V", (194.31, 58.42), label=False)
-    sh.path("+5V", [d_usb["1"], (167.64, 45.72), (167.64, 58.42)])
-    sh.rail("+5V", 58.42, [d_buck["1"], (167.64, 58.42), c5["1"], c_li["1"], flag["1"], (199.39, 58.42), ldo["1"]],
-            tap=(179.07, (0, -1)))
-    sh.path("+5V", [ldo["3"], (199.39, 60.96), (199.39, 58.42)])
+    ldo = part(sh, "LDO", "U202", (219.71, 60.96))
+    c5 = part(sh, "C4u7", "C209", (182.88, 62.23))
+    c_li = part(sh, "C1u", "C207", (195.58, 62.23))
+    flag = sh.flag("+5V", (204.47, 58.42), label=False)
+    sh.path("+5V", [d_usb["1"], (177.80, 45.72), (177.80, 58.42)])
+    sh.rail("+5V", 58.42, [d_buck["1"], (177.80, 58.42), c5["1"], c_li["1"], flag["1"], (209.55, 58.42), ldo["1"]],
+            tap=(189.23, (0, -1)))
+    sh.path("+5V", [ldo["3"], (209.55, 60.96), (209.55, 58.42)])
     sh.net(c5["2"], "GND")
     sh.net(c_li["2"], "GND")
     sh.net(ldo["2"], "GND")
-    c_lo = part(sh, "C1u", "C208", (222.25, 62.23))
-    sh.rail("+3V3", 58.42, [ldo["5"], c_lo["1"]], tap=(217.17, (0, -1)))
+    c_lo = part(sh, "C1u", "C208", (232.41, 62.23))
+    sh.rail("+3V3", 58.42, [ldo["5"], c_lo["1"]], tap=(227.33, (0, -1)))
     sh.net(c_lo["2"], "GND")
 
     sh.note(91.44, 104.14, [

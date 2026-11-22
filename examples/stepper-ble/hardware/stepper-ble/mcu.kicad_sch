@@ -2715,7 +2715,7 @@
 		(uuid "95853dca-13fb-5ed1-b9c2-6158c85ec9f4")
 	)
 	(rectangle
-		(start 167.64 78.74)
+		(start 161.29 78.74)
 		(end 248.92 195.58)
 		(stroke
 			(width 0)
@@ -2773,7 +2773,7 @@
 		)
 		(uuid "892bbc31-59aa-5dec-91e6-50283f79fa64")
 	)
-	(text "HSE 32 MHz, internal load caps (DS11929 6.3.10)"
+	(text "HSE 32 MHz (DS11929 6.3.10)"
 		(exclude_from_sim no)
 		(at 105.41 74.93 0)
 		(effects
@@ -2799,7 +2799,7 @@
 	)
 	(text "STM32WB55CGU6 (UFQFPN48)"
 		(exclude_from_sim no)
-		(at 168.91 82.55 0)
+		(at 162.56 82.55 0)
 		(effects
 			(font
 				(size 1.8 1.8)

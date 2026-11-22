@@ -4,6 +4,7 @@
     review.py <project dir | .kicad_pro | .kicad_pcb | .kicad_sch> [--out DIR] [--voltage NET=V ...]
               [--voltages volts.json] [--netlist file.net] [--kicad-cli PATH] [--fab jlcpcb] [--assembly jlcpcb]
               [--blocks 'pcb/reference/*.block.json'] [--bom bom/bom.csv] [--skip NAME,...] [--fail-on MAJOR]
+              [--allow-unrouted]
 
 Runs, each when its inputs exist (a check that can't run is listed as a NOTE with the reason):
   schematic   this skill's checks on the design model (checks.py): decoupling, pull-ups, MCU pins, ratings,
@@ -149,11 +150,13 @@ def _gate_findings(data, tool, area, rule, kinds):
     return found
 
 
-def step_rules(board, cli, fab, out):
+def step_rules(board, cli, fab, out, allow_unrouted=False):
     if not board:
         return [not_run("rules", "no board")]
     path = os.path.join(out, "rules.json")
     cmd = [script("pcb-design-rules", "pcb_rules.py"), "check", board, "--json", path]
+    if allow_unrouted:
+        cmd.append("--allow-unrouted")
     if not cli:
         cmd.append("--no-drc")
     else:
@@ -303,6 +306,8 @@ def main(argv=None):
     ap.add_argument("--bom", help="BOM CSV for the stock check (network)")
     ap.add_argument("--skip", default="", help="steps to skip: " + ",".join(STEPS))
     ap.add_argument("--fail-on", choices=SEVERITY[:3])
+    ap.add_argument("--allow-unrouted", action="store_true",
+                    help="a placed board not yet routed: unconnected items are not findings (pcb_rules.py)")
     a = ap.parse_args(argv)
 
     pro, board, sch = find_project(a.project)
@@ -343,7 +348,7 @@ def main(argv=None):
     plan = [("schematic", lambda: step_schematic(model) if model else [not_run("schematic", "no board, schematic netlist or kicad-cli")]),
             ("erc", lambda: step_erc(cli, sch, out)),
             ("library", lambda: step_library(board, sch, out)),
-            ("rules", lambda: step_rules(board, cli, a.fab, out)),
+            ("rules", lambda: step_rules(board, cli, a.fab, out, a.allow_unrouted)),
             ("netclasses", lambda: step_netclasses(board, out)),
             ("placement", lambda: step_placement(board, a.assembly, out)),
             ("blocks", lambda: step_blocks(board, a.blocks, root)),

@@ -218,6 +218,26 @@ class Flow(unittest.TestCase):
             json.dump(pj, f)
         self.assertEqual(p.run("check")[1]["class_values_stale"], 1)
 
+    def test_impedance_gap_from_the_calculator_is_kept(self):
+        p = Project({"RF": ["RF_50"]}, [fp("A", 0, 0, "RF"), fp("B", 5, 0, "RF")])
+        p.run("apply")
+
+        def set_rf(clearance):
+            with open(p.pro) as f:
+                pj = json.load(f)
+            for c in pj["net_settings"]["classes"]:
+                if c["name"] == "RF_50":
+                    c.update(track_width=0.35, clearance=clearance)
+            with open(p.pro, "w") as f:
+                json.dump(pj, f)
+
+        set_rf(0.3)
+        self.assertEqual(p.run("check")[1]["class_values_stale"], 0)
+        p.run("apply")
+        self.assertEqual(p.classes()["RF_50"]["clearance"], 0.3)
+        set_rf(0.1)
+        self.assertEqual(p.run("check")[1]["class_values_stale"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

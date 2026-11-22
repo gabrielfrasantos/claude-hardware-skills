@@ -34,7 +34,7 @@ python3 scripts/scaffold.py ../my-board --name my-board --title "my-board: what 
 ```
 
 It writes the files above and **never overwrites** one that exists, so it also fills the gaps of an existing repo. Then:
-1. Create the KiCad project at `hardware/<board>/<board>.kicad_pro` (*File → New Project*).
+1. Open `hardware/<board>/<board>.kicad_pro` in KiCad. The scaffold writes it minimal (KiCad 10 fills in its defaults on first save), so a headless flow can start from it too: `schematic-capture` writes the schematic, and `netclasses.py apply` the net classes.
 2. Commit `.claude/settings.json`, so teammates get the plugin.
 3. Start Phase 0 in `docs/plan.md`.
 

@@ -75,8 +75,8 @@ def driver(sh):
     sh.rail("GND", 172.72, [u["5"], u["29"], u["38"], u["39"]], tap=(76.2, (0, 1)))
 
     sh.box(20.32, 35.56, 116.84, 93.98, "DRV8711 supply pins (SLVSC40H §10.1)")
-    c_vm = part(sh, "C10n50", "C302", (30.48, 58.42))
-    c_vcp = part(sh, "C1u50", "C306", (45.72, 58.42))
+    c_vm = part(sh, "C10n50", "C302", (35.56, 58.42))
+    c_vcp = part(sh, "C1u50", "C306", (50.8, 58.42))
     sh.rail("VM", 50.8, [c_vm["1"], c_vcp["1"]], label="left", ext=5.08)
     sh.net(c_vm["2"], "GND")
     sh.net(c_vcp["2"], "VCP")

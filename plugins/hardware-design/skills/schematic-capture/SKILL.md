@@ -42,12 +42,15 @@ These are the conventions:
   - Labels are for nets that leave the block or the sheet, and for the pins of dense ICs, whose 2.54 mm pin pitch leaves no room for a wired part (an MCU's I/O, a gate driver's logic and supply pins). Their supply and pull-up parts are then drawn as a small wired group nearby.
   - Use power symbols for the supplies and ground (`POWER_SYMBOLS`).
 - **Net classes go in a table** (`sh.class_table(x, y)`), one per sheet, clear of the circuit: each row is the net's label or power symbol wired to its class flag. A class flag placed on the circuit's own label overlaps it, and the lint fails the build.
-- **No text overlaps anything.** References, values, labels, notes and class names must not overlap each other, any part's body or pins, or the sheet border.
+- **No text overlaps anything.** References, values, labels, notes and class names must not overlap each other, any part's body or pins, or the sheet border. Labels on neighbouring pins (2.54 mm apart) may touch each other but not overlap.
+- **A block's outline (`sh.box`) encloses what it frames.** It must not run through a part or a text (a label pointing out of the block, a reference beside a part at its edge). Widen the block, or move the part in.
+- **The root page is linted too:** its notes must stay clear of the sheet symbols, each other and the border, and each sheet's description must fit in its symbol.
   - This is lint: `build` fails on it.
   - Space two-pin parts with values at least 5 grid units (12.7 mm) apart, and more for long values.
   - Hide a value repeated on many identical parts (`p.hide_value`), and say it once in the note ("Q301-Q308: CSD18543Q3A").
   - Move an IC's reference with `p.fpos = (dx, dy, "left" | "right")` when both its top and bottom have pins.
-- The build fails on **layout lint**: a wire crossing a part, a pin touching a wire mid-span, or overlapping text.
+- The build fails on **layout lint**: a wire crossing a part, a pin touching a wire mid-span, overlapping text, or a block outline through a part or a text.
+- **A pin the IC drives itself but its symbol types as `power_in`** (the STM32WB's VLXSMPS, an SMPS switch node) needs `sh.flag(net, at)`, or ERC reports it undriven.
 
 ## 3. The API (`schgen/sch.py`)
 
@@ -93,7 +96,7 @@ Hardware picks the MCU pins after placement (docs/design.md §4):
 
 | Command | Needs | What it proves |
 |---|---|---|
-| `schgen.py build config.py` | symbols | every pin decided, no duplicate references, no layout lint (wires through parts, pins mid-wire, overlapping or off-sheet text); writes `expected.json` |
+| `schgen.py build config.py` | symbols | every pin decided, no duplicate references, no layout lint (wires through parts, pins mid-wire, overlapping or off-sheet text, block outlines through parts or text, the root page's notes); writes `expected.json` |
 | `schgen.py check config.py` | kicad-cli | KiCad's netlist has exactly the intended nets, names and pins |
 | `schgen.py equivalence config.py <rev\|file.net>` | kicad-cli, git | after a drawing-only change: same parts, fields and pin-to-net partition as before (`--allow-renames` reports net renames instead of failing) |
 | `library_check.py board.kicad_pcb` | nothing | every placed symbol's pins have pads on its footprint, and the reverse; every BOM part has a footprint, LCSC and MPN (`--fields`); no part missing from the board |

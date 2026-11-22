@@ -5,7 +5,9 @@
                 [--fab jlcpcb] [--layers 4] [--owner NAME] [--date YYYY-MM-DD] [--dry-run]
 
 Writes, never overwriting a file that exists (it lists the ones it skips):
-    CLAUDE.md, PROJECT_CONTEXT.md, README.md, .gitignore
+    AGENTS.md                                  instructions for any coding agent
+    CLAUDE.md                                  imports AGENTS.md for Claude Code
+    PROJECT_CONTEXT.md, README.md, .gitignore
     .claude/settings.json                      the plugin's marketplace, enabled for the project
     .claude/agents/<name>-board-reviewer.md    the read-only reviewer agent, rubric = docs/design-guide.md
     docs/requirements.md, decisions.md, plan.md, design-guide.md, bringup.md

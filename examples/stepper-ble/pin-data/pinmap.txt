@@ -1,0 +1,21 @@
+# pin map: function, pin, pad, signal, side, distance to its parts (mm)
+# U401 on stepper-ble.kicad_pcb; pin data: mcu.kicad_sch (MCU_ST_STM32WB:STM32WB55CGUx); needs: pin-needs.txt
+# total distance 364.6 mm (current assignment 377.4 mm)
+# instances: drv: n=1
+BEMF_ADC    PA7     16  ADC1_IN12        N    19.7
+BUTTON      PA8     17  EXTI8            N    28.3
+DRV_DIR     PA15    42  GPIO             S    26.2
+DRV_FAULTn  PB0     28  EXTI0            W    19.3
+DRV_RESET   PB4     44  GPIO             S    27.4
+DRV_SCLK    PA5     14  SPI1_SCK         N    30.5
+DRV_SCS     PA10    36  GPIO             W    22.6
+DRV_SDATI   PB5     45  SPI1_MOSI        S    27.1
+DRV_SDATO   PA6     15  SPI1_MISO        N    24.1
+DRV_SLEEPn  PE4     30  GPIO             W    19.1
+DRV_STALLn  PB1     29  EXTI1            W    16.7
+DRV_STEP    PB6     46  TIM16_CH1N       S    28.2
+LED_FAULT   PB7     47  GPIO             S     7.1
+LED_STATUS  PB2     19  GPIO             N    41.7
+NTC_ADC     PA4     13  ADC1_IN9         N     1.0
+PG_5V       PA9     18  GPIO             N    22.1
+VM_SENSE    PA0      9  ADC1_IN5         E     3.5

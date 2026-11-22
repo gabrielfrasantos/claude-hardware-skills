@@ -86,6 +86,47 @@ rules-only skills (`*-circuit-design`, `*-layout`, `circuit-simulation`) are sel
 claude.ai, or point any agent that reads Agent Skills at it. The scripts are ordinary command-line tools with
 `--help`. They don't need an agent.
 
+## Quick start
+
+The flow for a new board, as commands. In an agent session, ask for each step in words ("scaffold a board repo for a
+motor controller", "review the board"), and the matching skill runs the same scripts. `$HW` is
+`plugins/hardware-design/skills` in a checkout of this repository.
+
+```bash
+# 1. A board repo with requirements, decisions, phase gates and a reviewer agent
+python3 $HW/hardware-project/scripts/scaffold.py ../my-board --name my-board --title "my-board: what it is" \
+        --firmware owner/my-firmware --fab jlcpcb --layers 4
+cd ../my-board            # then create hardware/my-board/my-board.kicad_pro in KiCad
+
+# 2. Schematic as code, checked against the intended netlist
+python3 $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py
+python3 $HW/schematic-capture/scripts/schgen.py check scripts/schgen/config.py
+
+# 3. Net classes and fab rules on the KiCad project
+python3 $HW/pcb-copper/scripts/netclasses.py apply hardware/my-board/my-board.kicad_pro
+python3 $HW/pcb-design-rules/scripts/pcb_rules.py apply hardware/my-board/my-board.kicad_pro --fab jlcpcb --netclasses
+
+# 4. Placement around your locked anchors, then the gates
+python3 $HW/pcb-placement/scripts/place.py optimize hardware/my-board/my-board.kicad_pcb
+python3 $HW/pcb-placement/scripts/place.py gate hardware/my-board/my-board.kicad_pcb
+python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/my-board/my-board.kicad_pcb --report pcb-quality.md
+
+# 5. Review everything into one findings file, then export for the fab
+python3 $HW/design-review/scripts/review.py hardware/my-board --voltage VBAT=12.6
+python3 $HW/hardware-project/scripts/export_jlcpcb.py
+```
+
+The generated `AGENTS.md` (imported by `CLAUDE.md`) lists every command and which skill covers each part of the
+work.
+
+## Worked example
+
+[`examples/stepper-ble`](examples/stepper-ble/README.md) is a public board designed end to end with these skills: a
+24 V stepper driver (DRV8711, eight external FETs) with Bluetooth LE (STM32WB55CG, PCB antenna) on JLCPCB 4-layer.
+It has a schematic as code, the parts chosen from JLCPCB stock, the placement and MCU pin map, and every gate and the
+design review run on it. It is placed but not routed. CI rebuilds its schematic and runs every gate on it with
+KiCad 10 on each pull request, so the claims above can be checked on a board anyone can open.
+
 ## Requirements
 
 | For | Needs |
@@ -102,6 +143,9 @@ claude.ai, or point any agent that reads Agent Skills at it. The scripts are ord
   [`docs/research/best-practices-audit.md`](docs/research/best-practices-audit.md) audits the skills against
   primary sources and records what changed as a result.
 - **Tests.** Every script has self-tests. CI runs them, a lint and the plugin validator on every pull request.
+- **KiCad in CI.** The `example-board` job installs KiCad 10 with
+  [kicad-bot](https://github.com/embedded-pro/kicad-bot) (ERC and DRC), rebuilds the example's schematic, checks it is
+  the same circuit as the committed one, and runs every gate on the board.
 - **Real boards.** The tools were measured on real boards (a power supply, a 50 V motor driver and a
   battery-powered robot controller). Each skill says what was measured, on what kind of board, and what wasn't.
 - **Evals.** [`evals/`](evals/README.md) is a generic harness. It runs a board repo's own eval cases with and
@@ -118,6 +162,8 @@ Known limits:
   `pcb-design-rules/profiles/`.
 - The RF rules cover 2.4 GHz only.
 - No autorouting. Placement and pin assignment are automated; routing critical nets stays with the designer.
+- `kicad-cli` has no *Update PCB from Schematic*. The example board uses a short `pcbnew` script for that step; the
+  plugin itself has no headless equivalent yet.
 - Some IPC values are transcribed from secondary sources until the standards themselves are checked. Each skill
   marks which ones.
 
@@ -135,6 +181,8 @@ evals/                                 generic eval harness
 ```
 
 ## Contributing
+
+Security issues: see [SECURITY.md](SECURITY.md).
 
 The most useful contribution is a correction backed by a primary source. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 how rules are sourced, how scripts are tested and how commits become releases.

@@ -124,16 +124,17 @@ Measured from the zone fills. With KiCad, `check` refills the zones on its proje
 The report lists examples with coordinates for each.
 
 ### 2.5 CI
-Run `check` on pull requests next to ERC/DRC. KiCad's PPA has per-version archives (`ppa:kicad/kicad-10.0-releases`):
+Run `check` on pull requests next to ERC/DRC. [kicad-bot](https://github.com/embedded-pro/kicad-bot) is one action that installs KiCad 10, runs ERC/DRC and leaves `kicad-cli` on `PATH` for the steps after it. Installing from the PPA by hand (`ppa:kicad/kicad-10.0-releases`) also works, with one catch: on `ubuntu-latest` (26.04), apt reads only the amd64v3 indexes, which the KiCad PPA doesn't publish, so it quietly installs Ubuntu's KiCad 9 instead. Limit the PPA source to the machine's dpkg architecture, as kicad-bot's `scripts/install-kicad.sh` does, and check `kicad-cli version`.
 ```yaml
-- run: |
-    sudo add-apt-repository --yes ppa:kicad/kicad-10.0-releases
-    sudo apt-get update && sudo apt-get install --yes --no-install-recommends kicad-cli || sudo apt-get install --yes kicad
-    pip install shapely scipy
-- uses: actions/checkout@<sha>   # pin the skills repo to a commit, like any action
+- uses: actions/checkout@<sha>
+- uses: embedded-pro/kicad-bot@<sha>   # v0.1.5 or later; pin actions to a commit
+  with: {kicad-version: "10", run-verify: "true", project-dir: hardware/board}
+- uses: actions/checkout@<sha>         # pin the skills repo to a commit, like any action
   with: {repository: gabrielfrasantos/hardware-design-skills, ref: <sha>, path: .hw-skills}
-- run: python3 .hw-skills/plugins/hardware-design/skills/pcb-design-rules/scripts/pcb_rules.py check
-       hardware/board/board.kicad_pcb --report pcb-quality.md
+- run: |
+    pip install shapely scipy
+    python3 .hw-skills/plugins/hardware-design/skills/pcb-design-rules/scripts/pcb_rules.py check \
+      hardware/board/board.kicad_pcb --report pcb-quality.md
 ```
 Expect red CI while routing is in progress: unconnected items, dangling tracks and quality gates fail until the layout is finished. Use `--allow-unrouted` on work-in-progress branches if that is what the team wants; shorts and clearance still fail.
 

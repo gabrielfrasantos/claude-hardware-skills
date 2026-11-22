@@ -1,6 +1,6 @@
 ---
 name: hardware-project
-description: Run a KiCad 10 board project with a repeatable, gated workflow - scaffold the repo (CLAUDE.md, requirements traced to firmware, decisions log, phase-gated plan, reviewer agent with a per-board rubric, schgen config, pin needs), check requirement traceability, and produce the review, BOM, JLC stock, JLCPCB and release packages and visual diffs with shared scripts instead of per-repo copies.
+description: Run a KiCad 10 board project with a repeatable, gated workflow - scaffold the repo (AGENTS.md and CLAUDE.md, requirements traced to firmware, decisions log, phase-gated plan, reviewer agent with a per-board rubric, schgen config, pin needs), check requirement traceability, and produce the review, BOM, JLC stock, JLCPCB and release packages and visual diffs with shared scripts instead of per-repo copies.
 ---
 
 # Hardware project (KiCad 10+)

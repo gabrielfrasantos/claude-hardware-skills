@@ -1,0 +1,18 @@
+# Design decisions
+
+Each entry: the decision, the alternatives rejected, and why. A changed decision gets a new row; the old row stays,
+marked **Superseded by D-xxx (date)**.
+
+| ID | Decision | Rejected | Rationale |
+|---|---|---|---|
+| D-001 | Fab and assembly at **jlcpcb**, 4 layers, KiCad 10, designed with the `hardware-design` plugin | | Owner's choice (2026-11-22). |
+| D-002 | Input 24 V nominal, 30 V max. Every part on VM rated >= 52 V. 3 A fast fuse; reverse polarity by an N-FET in the return leg (CSD18543Q3A, VGS clamped by a 15 V zener); SMAJ33A TVS on VM. | P-FET high side; series Schottky | A return-leg N-FET reuses the bridge FET and drops ~10 mV, against ~0.5 V and 1 W for a Schottky at 2 A. SMAJ33A: VRWM 33 V above the 30 V max, VC 53.3 V under the 60 V FETs. |
+| D-003 | Motor stage: DRV8711 with eight external CSD18543Q3A FETs, 0.1 ohm sense, ISGAIN 10, TORQUE <= 186: 2.0 A peak per phase (SLVSC40H eq. 1). | Integrated driver (DRV8434, DRV8825) | The external-FET driver is the worked example's power-stage layout case; it also gives stall detection over SPI. |
+| D-004 | Radio: STM32WB55CGU6 chip-down, ST MLPF-WB55-01E3 (match and filter for WB55Cx), TI SWRA117D inverted-F PCB antenna, a 0 ohm + two not-fitted capacitors to tune it. SWD on a TC2030 footprint. | Certified module; Johanson 2450AT18A100 chip antenna; Pulse W3011 | A module hides the RF layout the example is for. 2450AT18A100E is out of stock at JLCPCB (2026-11-22); W3011 is a 1.575 GHz GNSS antenna, not 2.4 GHz. |
+| D-005 | Pad-to-pad clearance inside U301 (0.18 mm) and each CSD18543Q3A (0.13 mm) relaxed by project rules in `stepper-ble.kicad_dru`. Gate-drive nets (up to VM + 12 V) are classed SIGNAL. | Changing the land patterns | The vendor land patterns set those gaps (0.20 and 0.14 mm); the 30 V classes ask 0.25 mm (IPC-2221C A7). Both stay above JLCPCB's 0.09 mm floor, which pcb_rules check still enforces. The 31-100 V class (0.64 mm) can't be met at a 0.5 mm-pitch pin; route the gate nets apart where there is room. |
+| D-006 | AE501 uses a project copy of KiCad's Texas_SWRA117D_2.4GHz_Left with the ground pad drilled 0.2 mm (was 0.3). | Widening the pad | The pad is TI's 0.5 mm trace; a 0.3 mm drill leaves a 0.10 mm annular ring, under JLCPCB's 0.15 mm. A smaller drill keeps TI's copper. |
+| D-007 | Anchors (owner placement): terminals, USB-C, antenna, MCU, DRV8711, the input chain, the two bridges above the motor terminal with their shunts and caps, the buck IC and inductor, and the NTC between the bridges. All in `scripts/make_board.py` ANCHORS. | Letting the optimizer place them | Their nets are pours (left out of the ratsnest) or their intent isn't in the netlist: the optimizer scattered the input chain and put the NTC beside the MCU, 0.4 mm from the QFN. |
+| D-008 | Pin map frozen (`pin-data/pinmap.txt`, 2026-11-22) after three assign/rebuild passes. | Another pass | The next pass saves 0.9 mm of 349.7 mm (0.3 %) by swapping near-tied pins: converged. |
+| D-009 | Logic supply: LMR36510 buck 24 V -> 5 V, OR-ed with USB VBUS by two SS34 Schottkys, then AP2112K-3.3. | Buck straight to 3.3 V | USB alone can power the MCU for flashing and BLE without 24 V. |
+| D-010 | 4-layer stack-up SIG/GND/GND/SIG (pcb-design-rules D32); RF and USB as impedance classes set from JLCPCB's calculator at routing. | SIG/GND/PWR/SIG | Solid ground under every signal layer; power runs as B.Cu pours. |
+| D-011 | The example ends at a placed, unrouted board. Gates run with `--allow-unrouted`; zone islands (the VM and GND_IN pours, not yet joined) are expected. | Routing it by script | The plugin has no router yet (docs/design.md Phase E); routing is the owner's. |

@@ -1,0 +1,31 @@
+# Pin needs for stepper-ble (pcb-placement pins.py). One function per line, named like its net:
+#   function       signals                                   group
+# Fixed pins are drawn on the MCU sheet and are not listed: USB (PA11/PA12), SWD (PA13/PA14, SWO PB3),
+# LSE (PC14/PC15), HSE (OSC_IN/OUT), BOOT0 (PH3), NRST, RF1.
+# Firmware: none (example board). Each need traces to docs/requirements.md instead.
+
+# DRV8711 serial interface (SLVSC40H Pin Functions): data in on SCLK rising, out on falling; SCS is active high,
+# so it is a GPIO, not the SPI's NSS
+DRV_SCLK       SPI{n}_SCK                                drv
+DRV_SDATI      SPI{n}_MOSI                               drv
+DRV_SDATO      SPI{n}_MISO                               drv
+DRV_SCS        GPIO
+
+# Step pulses from a timer output; the rest are plain GPIO or interrupts
+DRV_STEP       TIM*_CH*
+DRV_DIR        GPIO
+DRV_SLEEPn     GPIO
+DRV_RESET      GPIO
+DRV_FAULTn     EXTI
+DRV_STALLn     EXTI
+
+# Analog inputs
+VM_SENSE       ADC1_IN*
+BEMF_ADC       ADC1_IN*
+NTC_ADC        ADC1_IN*
+
+# Supervision and user interface
+PG_5V          GPIO
+LED_STATUS     GPIO
+LED_FAULT      GPIO
+BUTTON         EXTI

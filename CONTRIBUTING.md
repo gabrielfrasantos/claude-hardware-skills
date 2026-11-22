@@ -53,6 +53,9 @@ e.g. `feat(pcb-placement): ...`, `fix(pcb-copper): ...`, `docs(rf-layout): ...`.
 the changelog and the next version: `feat` bumps the minor, `fix` the patch, `!` or `BREAKING CHANGE:` the major
 (pre-1.0: the minor).
 
+Pull request titles follow the same format (`feat(examples): ...`, `fix(pcb-copper): ...`, `chore: ...`): a
+squash merge makes the title the commit on `main`, and that is what release-please reads.
+
 ## Reporting a wrong or missing rule
 
 Open an issue with the *Rule correction* form and the source that disagrees. Corrections backed by a primary

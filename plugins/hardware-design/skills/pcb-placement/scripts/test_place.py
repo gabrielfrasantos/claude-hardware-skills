@@ -128,5 +128,15 @@ class Gate(unittest.TestCase):
         self.assertGreater(os.path.getsize(png), 1000)
 
 
+
+class KiCad11(unittest.TestCase):
+    def test_move_a_transformed_footprint(self):
+        block = ('(footprint "R"\n\t\t(layer "F.Cu")\n\t\t(transform\n\t\t\t(translate 10 20)\n\t\t\t(rotate 90)\n'
+                 '\t\t\t(scale 1 1)\n\t\t)\n\t)')
+        out = G.footprint_text(block, 12.5, 7)
+        self.assertIn("(translate 12.5 7)", out)
+        self.assertIn("(rotate 90)", out)
+
+
 if __name__ == "__main__":
     unittest.main()

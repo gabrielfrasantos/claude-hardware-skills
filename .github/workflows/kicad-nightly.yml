@@ -45,6 +45,8 @@ jobs:
           HW: ../../plugins/hardware-design/skills
           PY: ${{ github.workspace }}/.venv/bin/python
           B: hardware/stepper-ble/stepper-ble.kicad_pcb
+          KICAD10_SYMBOL_DIR: /usr/share/kicad-nightly/symbols
+          KICAD10_FOOTPRINT_DIR: /usr/share/kicad-nightly/footprints
         run: |
           set +e
           fail=0

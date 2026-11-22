@@ -154,6 +154,21 @@ def children(node, key):
     return [c for c in node if isinstance(c, list) and c and c[0] == key]
 
 
+def footprint_place(fp):
+    """(x, y, rotation) of a footprint: `(at x y rot)` up to KiCad 10, `(transform (translate x y) (rotate rot)
+    (scale 1 1))` in KiCad 11's files (nightly 10.99, file version 20261025). A scaled footprint is refused."""
+    at = child(fp, "at")
+    if at:
+        return float(at[1]), float(at[2]), float(at[3]) if len(at) > 3 else 0.0
+    tf = child(fp, "transform")
+    if tf:
+        tr, ro, sc = child(tf, "translate"), child(tf, "rotate"), child(tf, "scale")
+        if sc and (abs(float(sc[1]) - 1) > 1e-9 or abs(float(sc[2]) - 1) > 1e-9):
+            raise SystemExit(f"footprint {fp[1]}: scaled by {sc[1]} x {sc[2]}; only unscaled footprints are supported")
+        return (float(tr[1]) if tr else 0.0, float(tr[2]) if tr else 0.0, float(ro[1]) if ro else 0.0)
+    return 0.0, 0.0, 0.0
+
+
 def is_locked(node):
     if "locked" in node[1:3]:
         return True
@@ -323,9 +338,7 @@ class Board:
         return out
 
     def _footprint(self, fp):
-        at = child(fp, "at")
-        fx, fy = float(at[1]), float(at[2])
-        frot = float(at[3]) if len(at) > 3 else 0.0
+        fx, fy, frot = footprint_place(fp)
         c, s = math.cos(math.radians(frot)), math.sin(math.radians(frot))
         ref = ""
         for p in children(fp, "property"):

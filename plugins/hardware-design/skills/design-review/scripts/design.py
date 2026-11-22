@@ -196,9 +196,7 @@ def from_board(board_path, schematic=None, pro=None):
         ref = props.get("Reference", "")
         if not ref:
             continue
-        at = R.child(fp, "at")
-        fx, fy = float(at[1]), float(at[2])
-        rot = float(at[3]) if len(at) > 3 else 0.0
+        fx, fy, rot = R.footprint_place(fp)
         c, s = math.cos(math.radians(rot)), math.sin(math.radians(rot))
         sym = syms.get(ref, {})
         attr = R.child(fp, "attr")

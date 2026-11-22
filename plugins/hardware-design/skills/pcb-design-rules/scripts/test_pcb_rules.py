@@ -120,6 +120,15 @@ class Parsing(unittest.TestCase):
         self.assertAlmostEqual(p["x"], 10)
         self.assertAlmostEqual(p["y"], 9)
 
+    def test_kicad11_transform(self):
+        k11 = ('(footprint "R" (layer "F.Cu") (transform (translate 10 10) (rotate 90) (scale 1 1)) '
+               '(property "Reference" "R1") (pad "1" smd rect (at 1 0 90) (size 1 1) (layers "F.Cu") (net "N")))\n')
+        b = board(k11)
+        self.assertAlmostEqual(b.pads[0]["x"], 10)
+        self.assertAlmostEqual(b.pads[0]["y"], 9)
+        with self.assertRaises(SystemExit):
+            pcb_rules.footprint_place(pcb_rules.parse_sexpr(k11.replace("(scale 1 1)", "(scale 2 1)")))
+
     def test_older_than_kicad10_is_refused(self):
         for version in ("20221018", "20241229"):          # KiCad 7, KiCad 9.0
             text = f'(kicad_pcb (version {version}) (layers (0 "F.Cu" signal)))'

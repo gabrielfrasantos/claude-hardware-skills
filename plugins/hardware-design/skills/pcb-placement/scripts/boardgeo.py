@@ -99,9 +99,7 @@ class Board:
         return name.replace("{slash}", "/")
 
     def _footprint(self, fp):
-        at = R.child(fp, "at")
-        fx, fy = _xy(at)
-        rot = float(at[3]) if len(at) > 3 else 0.0
+        fx, fy, rot = R.footprint_place(fp)
         ref = ""
         for p in R.children(fp, "property"):
             if len(p) > 2 and p[1] == "Reference":
@@ -259,6 +257,13 @@ def footprint_text(block, x=None, y=None, locked=None):
             parts = block[s + 1:e - 1].split()
             parts[1], parts[2] = f"{x:.4f}".rstrip("0").rstrip("."), f"{y:.4f}".rstrip("0").rstrip(".")
             edits.append((s, e, "(" + " ".join(parts) + ")"))
+            break
+        if kind == "transform" and x is not None:
+            sub = block[s:e]
+            m = re.search(r"\(translate\s+[-\d.eE+]+\s+[-\d.eE+]+\)", sub)
+            if m:
+                new = f"(translate {x:.4f}".rstrip("0").rstrip(".") + " " + f"{y:.4f}".rstrip("0").rstrip(".") + ")"
+                edits.append((s + m.start(), s + m.end(), new))
             break
     if locked is not None:
         lk = [(s, e) for kind, s, e in kids if kind == "locked"]

@@ -31,6 +31,9 @@ import sys
 import tempfile
 import uuid
 
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "pcb-design-rules", "scripts"))
+import pcb_rules as R  # noqa: E402
+
 NS = uuid.UUID("6f1c2f9e-3b0e-4c55-9a51-2a7c6c1d0b10")
 _TOK = re.compile(r'"(?:[^"\\]|\\.)*"|[()]|[^\s()"]+')
 KEEP_PROPS = ("Reference", "Value", "Footprint")
@@ -441,9 +444,8 @@ def sync(text, comps, libs, fp_dir, park=None):
                 if lib is None:
                     rep["missing_footprints"].append(f"{ref}: {comp['footprint']}")
                 else:
-                    at = child(fp, "at")
-                    new = from_library(lib, comp["footprint"], ref, float(at[1]), float(at[2]),
-                                       float(at[3]) if len(at) > 3 else 0.0, child(fp, "locked") is not None
+                    fx, fy, frot = R.footprint_place(fp)
+                    new = from_library(lib, comp["footprint"], ref, fx, fy, frot, child(fp, "locked") is not None
                                        or "locked" in fp[2:3])
                     rep["replaced"].append(ref)
         before = repr(fp) if new is fp else None

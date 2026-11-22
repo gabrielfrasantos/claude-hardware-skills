@@ -179,9 +179,7 @@ def parse(text):
     root = PR.parse_sexpr(text)
     fps = []
     for fp in PR.children(root, "footprint"):
-        at = PR.child(fp, "at")
-        fx, fy = float(at[1]), float(at[2])
-        rot = float(at[3]) if len(at) > 3 else 0.0
+        fx, fy, rot = PR.footprint_place(fp)
         side = "B" if (PR.child(fp, "layer") or [None, "F.Cu"])[1] == "B.Cu" else "F"
         ref, ref_size, ref_thick, ref_at, ref_hidden, ref_layer = "", None, None, None, False, None
         silk_texts = []

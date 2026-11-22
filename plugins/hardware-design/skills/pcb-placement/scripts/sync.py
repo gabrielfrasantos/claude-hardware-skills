@@ -4,6 +4,9 @@
     sync.py <board.kicad_pcb> [--schematic board.kicad_sch | --netlist board.net] [--kicad-cli PATH]
             [--layers 2|4|6] [--park X,Y] [--dry-run | --check]
 
+Libraries: the board folder's fp-lib-table, then the newest global one (~/.config/kicad/<version>/, or
+$KICAD_CONFIG_HOME); ${KICAD<n>_FOOTPRINT_DIR} resolves from the environment or KiCad's install folder.
+
 Reads KiCad's netlist (exported with kicad-cli from the schematic next to the board, or --netlist) and, on the board:
   adds    a footprint for every symbol that has none, from the project's and the global fp-lib-table, parked in a
           grid below the board outline (or at --park);
@@ -35,6 +38,7 @@ PARK_GAP = 1.0
 ATTR_ORDER = ("smd", "through_hole", "board_only", "exclude_from_pos_files", "exclude_from_bom",
               "allow_missing_courtyard", "dnp")
 DEFAULT_FP_DIRS = ("/usr/share/kicad/footprints", "/usr/local/share/kicad/footprints",
+                   "/usr/share/kicad-nightly/footprints",
                    "/Applications/KiCad/KiCad.app/Contents/SharedSupport/footprints",
                    r"C:\Program Files\KiCad\10.0\share\kicad\footprints")
 
@@ -156,20 +160,42 @@ def export_netlist(cli, sch):
 def _expand(uri, env):
     def sub(m):
         k = m.group(1)
+        if re.fullmatch(r"KICAD\d+_FOOTPRINT_DIR", k):
+            return os.environ.get(k) or env["KICAD_FOOTPRINT_DIR"] or m.group(0)
         return env.get(k) or os.environ.get(k) or m.group(0)
     return re.sub(r"\$\{([^}]+)\}", sub, uri)
 
 
+def _version(name):
+    try:
+        return tuple(int(p) for p in name.split("."))
+    except ValueError:
+        return ()
+
+
+def global_table():
+    """The fp-lib-table of the newest KiCad configuration folder (kicad/10.0, kicad/11.0, kicadnightly/...)."""
+    base = os.environ.get("KICAD_CONFIG_HOME")
+    roots = [base] if base else [os.path.join(os.path.expanduser("~"), ".config", d) for d in ("kicad", "kicadnightly")]
+    found = []
+    for r in roots:
+        if os.path.isdir(r):
+            for v in os.listdir(r):
+                t = os.path.join(r, v, "fp-lib-table")
+                if os.path.exists(t):
+                    found.append((_version(v), t))
+    return max(found)[1] if found else None
+
+
 def lib_tables(board_dir):
     """{nickname: folder}: the project's fp-lib-table first, then the global one."""
-    env = {"KIPRJMOD": board_dir}
-    fp_dir = os.environ.get("KICAD10_FOOTPRINT_DIR") or next((d for d in DEFAULT_FP_DIRS if os.path.isdir(d)), "")
-    env["KICAD10_FOOTPRINT_DIR"] = fp_dir
-    home = os.environ.get("KICAD_CONFIG_HOME") or os.path.join(os.path.expanduser("~"), ".config", "kicad")
-    tables = [os.path.join(board_dir, "fp-lib-table"), os.path.join(home, "10.0", "fp-lib-table")]
+    fp_dir = next((os.environ[k] for k in sorted(os.environ, reverse=True) if re.fullmatch(r"KICAD\d+_FOOTPRINT_DIR", k)),
+                  None) or next((d for d in DEFAULT_FP_DIRS if os.path.isdir(d)), "")
+    env = {"KIPRJMOD": board_dir, "KICAD_FOOTPRINT_DIR": fp_dir}
+    tables = [os.path.join(board_dir, "fp-lib-table"), global_table()]
     libs = {}
     for t in tables:
-        if os.path.exists(t):
+        if t and os.path.exists(t):
             with open(t, encoding="utf-8") as f:
                 for lib in children(parse(f.read()), "lib"):
                     libs.setdefault(val(lib, "name"), _expand(val(lib, "uri"), env))

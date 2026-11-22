@@ -5,7 +5,7 @@
     pcb_rules.py apply  <board.kicad_pcb | project.kicad_pro> --fab jlcpcb[,seeed] [--layers N] [--netclasses]
                         [--stackup SIG,GND,PWR,SIG] [--no-teardrops] [--teardrop-exclude REGEX]
     pcb_rules.py check  <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor] [--no-copper]
-                        [--gate NAME=LIMIT] [--report r.md] [--json r.json]
+                        [--baseline REF.kicad_pcb | git:REV] [--gate NAME=LIMIT] [--report r.md] [--json r.json]
 
 apply   writes the fab's minimums into the project's Board Setup constraints, a managed block of custom
         rules into <project>.kicad_dru (fab rules Board Setup has no field for, plus the 45-degree corner
@@ -18,7 +18,9 @@ check   shorts and clearance: KiCad DRC on a temporary copy of the project with 
         forced to error, DRC exclusions of those checks removed, and all errors per track reported; then a
         fab-floor pass that flags copper and holes below the fab's absolute minimum whatever the project's
         rules say. Plus the geometry checks DRC cannot do: off-grid angles, 90-degree corners, junctions,
-        jogs, segments and vias per connection, detours, layer direction. And the copper (copper.py):
+        jogs, segments and vias per connection, detours, layer direction. Net integrity: copper left on a net no
+        pad has, and with --baseline (a board file, or git:REV for the same file at a git revision) vias that
+        sit where they were but on another net. And the copper (copper.py):
         teardrops, unfilled zones, islands, necks, ground-plane splits, unstitched ground, stitching
         distance, and signals over gaps in their reference plane.
         Exit status 1 when a hard gate fails, so it can gate CI.
@@ -59,6 +61,8 @@ GATES = {
     "below_fab_minimum": ("hard", 0),         # anything under the fab's absolute minimum, whatever the rules say
     "dangling": ("hard", 0),                  # tracks/vias connected at one end only (KiCad re-nets floating copper)
     "acute_corners": ("hard", 0),             # tracks meeting at < 90 degrees: acid traps, a manufacturing concern
+    "orphan_copper_nets": ("hard", 0),        # tracks, vias or pours on a net no pad has (a net renamed in the schematic)
+    "via_net_changes": ("hard", 0),           # with --baseline: a via at the same place as in the reference, on another net
     # house style (the owner's, D-decision; not an IPC or fab rule): octilinear routing, 45-degree corners,
     # branches on pads, no jogs
     "any_angle_segments": ("hard", 0),        # segments not on a 0/45/90/135 degree direction
@@ -932,6 +936,36 @@ def cmd_apply(a):
 
 
 # ----------------------------------------------------------------------------------------------- check
+def _baseline_text(board, ref):
+    if ref.startswith("git:"):
+        rev = ref[4:]
+        d = os.path.dirname(board)
+        top = subprocess.run(["git", "-C", d, "rev-parse", "--show-toplevel"], capture_output=True, text=True)
+        if top.returncode:
+            sys.exit(f"--baseline {ref}: {board} is not in a git repository")
+        rel = os.path.relpath(board, top.stdout.strip()).replace(os.sep, "/")
+        r = subprocess.run(["git", "-C", d, "show", f"{rev}:{rel}"], capture_output=True, text=True)
+        if r.returncode:
+            sys.exit(f"--baseline {ref}: {r.stderr.strip()}")
+        return r.stdout
+    with open(ref, encoding="utf-8") as f:
+        return f.read()
+
+
+def net_integrity(b, board, ref=None):
+    """(orphan nets, via net changes or None, reference name). An orphan net has copper but no pad."""
+    pad_nets = {p["net"] for p in b.pads if p["net"]}
+    copper = {s["net"] for s in b.segments + b.arcs + b.vias} | set(b.zone_nets)
+    orphans = sorted(n for n in copper if n and n not in pad_nets)
+    if not ref:
+        return orphans, None, None
+    old = {(round(v["x"], 3), round(v["y"], 3)): v["net"] for v in Board(text=_baseline_text(board, ref)).vias}
+    moved = [f"via at ({x:g}, {y:g}): {old[(x, y)] or 'no net'} -> {v['net'] or 'no net'}"
+             for v in b.vias for x, y in [(round(v["x"], 3), round(v["y"], 3))]
+             if (x, y) in old and old[(x, y)] != v["net"]]
+    return orphans, moved, ref
+
+
 def cmd_check(a):
     for g in a.gate or []:
         k, _, v = g.partition("=")
@@ -1048,6 +1082,16 @@ def cmd_check(a):
     else:
         lines += ["## Copper", "", "Not run (`--no-copper`).", ""]
 
+    orphans, moved, ref_note = net_integrity(b, board, a.baseline)
+    metrics.update(orphan_copper_nets=len(orphans), via_net_changes=None if moved is None else len(moved))
+    examples["orphan_copper_nets"] = orphans[:15]
+    if moved:
+        examples["via_net_changes"] = moved[:15]
+    lines += ["## Net integrity", "",
+              f"- copper on nets no pad has: **{len(orphans)}**" + (f" ({', '.join(orphans[:15])})" if orphans else ""),
+              f"- vias on another net than in {ref_note}: **{len(moved)}**" if moved is not None
+              else "- via nets against a reference: not run (pass `--baseline`)", ""]
+    lines += [f"  - {m}" for m in (moved or [])[:15]]
     lines += ["## Gates", "", "| Metric | Value | Gate | Result |", "|---|---|---|---|"]
     for k, (kind, limit) in GATES.items():
         val = metrics.get(k)
@@ -1120,6 +1164,7 @@ def main():
     c.add_argument("--no-refill", action="store_true")
     c.add_argument("--no-copper", action="store_true", help="skip the teardrop, pour and plane checks")
     c.add_argument("--allow-unrouted", action="store_true", help="do not fail on unconnected items (layout in progress)")
+    c.add_argument("--baseline", metavar="REF", help="reference board for via_net_changes: a .kicad_pcb, or git:REV")
     c.add_argument("--gate", action="append", metavar="NAME=LIMIT", help="override a gate limit, e.g. --gate track_junctions=4")
     c.add_argument("--report", help="write the Markdown report here")
     c.add_argument("--json", help="write metrics as JSON here")

@@ -1,0 +1,69 @@
+name: kicad-nightly
+
+# Canary: the example board's gates on KiCad's nightly build (the next major version), so a file-format or
+# kicad-cli change shows up here before users meet it. Never blocks a merge: the job is allowed to fail.
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/kicad-nightly.yml
+
+permissions:
+  contents: read
+
+jobs:
+  nightly:
+    name: Example board (KiCad nightly)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: KiCad nightly
+        run: |
+          sudo add-apt-repository --yes ppa:kicad/kicad-dev-nightly
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends kicad-nightly kicad-nightly-symbols kicad-nightly-footprints
+          cli=$(command -v kicad-cli-nightly || find /usr -name kicad-cli -type f -perm -u+x 2>/dev/null | head -1)
+          sudo ln -sf "$cli" /usr/local/bin/kicad-cli
+          kicad-cli version
+          for t in sym-lib-table fp-lib-table; do
+            src=$(find /usr/share -path '*kicad*' -name "$t" 2>/dev/null | grep -m1 template)
+            ver=$(kicad-cli version | cut -d. -f1-2)
+            mkdir -p ~/.config/kicad/$ver
+            cp "$src" ~/.config/kicad/$ver/
+          done
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet -r requirements.txt
+      - name: Gates on the example
+        working-directory: examples/stepper-ble
+        env:
+          HW: ../../plugins/hardware-design/skills
+          PY: ${{ github.workspace }}/.venv/bin/python
+          B: hardware/stepper-ble/stepper-ble.kicad_pcb
+        run: |
+          set +e
+          fail=0
+          step() { echo "::group::$*"; "$@"; rc=$?; echo "::endgroup::"; [ $rc -eq 0 ] || { echo "::warning::failed: $*"; fail=1; }; }
+          step $PY scripts/make_library.py
+          step $PY $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py
+          step $PY $HW/schematic-capture/scripts/schgen.py check scripts/schgen/config.py
+          step kicad-cli sch erc --exit-code-violations -o erc.rpt hardware/stepper-ble/stepper-ble.kicad_sch
+          step $PY $HW/pcb-placement/scripts/sync.py $B --check
+          step $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2
+          step $PY $HW/pcb-copper/scripts/netclasses.py check $B
+          step $PY $HW/pcb-design-rules/scripts/silk.py check $B
+          step $PY $HW/pcb-placement/scripts/place.py gate $B --enforce --baseline hardware/stepper-ble/placement-baseline.json
+          step $PY $HW/schematic-capture/scripts/library_check.py $B
+          echo "::notice::now on files saved by the nightly (its own format)"
+          step kicad-cli pcb upgrade --force $B
+          for s in hardware/stepper-ble/*.kicad_sch; do kicad-cli sch upgrade --force "$s" >/dev/null; done
+          head -3 $B
+          step $PY $HW/pcb-placement/scripts/sync.py $B --check
+          step $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2
+          step $PY $HW/pcb-copper/scripts/netclasses.py check $B
+          step $PY $HW/pcb-design-rules/scripts/silk.py check $B
+          step $PY $HW/schematic-capture/scripts/library_check.py $B
+          exit $fail

@@ -127,6 +127,28 @@ class Parsing(unittest.TestCase):
                 pcb_rules.Board(text=text)
 
 
+def via(x, y, net):
+    return f'(via (at {x} {y}) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "{net}"))\n'
+
+
+class NetIntegrity(unittest.TestCase):
+    def test_orphan_copper(self):
+        b = board(fp("R1", 0, 0, 0, [("1", 0, 0)], "VIN"), seg(0, 0, 5, 0, "VIN"), seg(5, 0, 9, 0, "OLD"), via(9, 0, "OLD"))
+        self.assertEqual(pcb_rules.net_integrity(b, "b.kicad_pcb")[:2], (["OLD"], None))
+
+    def test_via_net_changes_against_a_reference(self):
+        import tempfile
+        ref = HEAD + fp("R1", 0, 0, 0, [("1", 0, 0)], "A") + via(3, 3, "A") + via(4, 4, "A") + ")"
+        with tempfile.NamedTemporaryFile("w", suffix=".kicad_pcb", delete=False) as f:
+            f.write(ref)
+        b = board(fp("R1", 0, 0, 0, [("1", 0, 0), ("2", 1, 0)], "A"), via(3, 3, "A"), via(4, 4, "B"), via(8, 8, "A"))
+        b.pads[1]["net"] = "B"
+        orphans, moved, _ = pcb_rules.net_integrity(b, "b.kicad_pcb", f.name)
+        os.remove(f.name)
+        self.assertEqual(orphans, [])
+        self.assertEqual(moved, ["via at (4, 4): A -> B"])
+
+
 class Rules(unittest.TestCase):
     def test_strictest_of_two_fabs(self):
         fab_min, design, _ = pcb_rules.combined_rules(["jlcpcb", "seeed"], 4)

@@ -45,7 +45,7 @@ python3 scripts/pcb_rules.py profiles                        # list fab profiles
 python3 scripts/pcb_rules.py apply <board.kicad_pro|.kicad_pcb> --fab jlcpcb[,seeed] [--layers N] [--netclasses] \
         [--stackup SIG,GND,PWR,SIG] [--no-teardrops] [--teardrop-exclude REGEX] [--teardrop-classes DIFF_*,RF_*]
 python3 scripts/pcb_rules.py check <board.kicad_pcb> [--fab ...] [--allow-unrouted] [--no-drc] [--no-floor] \
-        [--no-copper] [--gate NAME=LIMIT] [--report report.md] [--json metrics.json]
+        [--no-copper] [--baseline REF.kicad_pcb | git:REV] [--gate NAME=LIMIT] [--report report.md] [--json metrics.json]
 python3 scripts/test_pcb_rules.py && python3 scripts/test_copper.py   # self-tests, no KiCad needed
 ```
 `kicad-cli` (KiCad 10+) is found via `--kicad-cli`, `$KICAD_CLI` or `PATH`. The geometry and copper checks parse the `.kicad_pcb` directly; with `--no-drc` they run with no KiCad installed.
@@ -84,6 +84,8 @@ Without KiCad (`--no-drc`), the script checks copper itself: tracks, arcs, vias 
 | `clearance_violations` | 0 | hard | every other copper-safety violation (§2.1 list) |
 | `below_fab_minimum` | 0 | hard | fab-floor pass |
 | `dangling` | 0 | hard (soft with `--allow-unrouted`) | tracks or vias connected at one end only |
+| `orphan_copper_nets` | 0 | hard | tracks, vias or pours on a net no pad has: what a net renamed in the schematic leaves behind after *Update PCB from Schematic* or `pcb-placement` `sync.py`, which update pads only. Re-net or delete that copper |
+| `via_net_changes` | 0 | hard (with `--baseline`) | a via at the same position as in the reference board (a file, or `git:REV` for the same file at a git revision), now on another net. In CI, `--baseline git:origin/main` catches vias re-netted by an edit or a sync |
 | `acute_corners` | 0 | hard | tracks meeting off a pad at < 90°: acid traps (the manufacturing concern; secondary sources [ACID]), doubled-back tracks, Y-branches |
 | `any_angle_segments` | 0 | hard, house style | segments (≥ 0.05 mm) not within ±0.5° of 0/45/90/135° |
 | `right_angle_corners` | 0 | hard, house style | two segments meeting off a pad at < 135°, i.e. 90° corners, including turns on a via |

@@ -143,6 +143,13 @@ desktop app, "Add folder"), Claude can run it there.
 
 Gate B: every row passes or has an issue filed with the fix; the KiCad version is recorded.
 
+**Status (2026-11-22).** KiCad 10.0.3 on Windows (owner's PC, Python 3.14), e-inverted-pendulum at 49b38c1, then
+51a4bcf / f3e1fbb for C2. B0–B9 all PASS after four fixes the runs found: kicad-cli not reaching the BOM step on a PC
+without it on PATH (#17), SSOP/MSOP/TSSOP compared by name (#17), pins.py refusing a debug pin to the debug function
+(#18), and evidence the kit didn't record (#16). The board findings the kit surfaced (AE801 short, an RF_50 trace
+0.18 mm from a via hole on 49b38c1, gone on 51a4bcf) went to the pendulum (C3). Open: the five checks in the KiCad
+window, and B6's Altium import (needs TI's PcbDoc). A1/A2 done (v0.1.0); A3 (repo description) open.
+
 ### Phase C: first real user, e-inverted-pendulum (D27)
 
 | # | Item | Owner decision needed |
@@ -153,6 +160,13 @@ Gate B: every row passes or has an issue filed with the fix; the KiCad version i
 | C4 | TI-derived `scripts/pcb/boost_drv8711.json` | licence decision (D35): keep committed, or move to `reference/` |
 
 Gate C: the pendulum's CI runs the plugin's gates at a pinned tag; no copied script left that the plugin replaces.
+
+**Status (2026-11-22).** C2 and C4 merged in the pendulum (embedded-pro/e-inverted-pendulum-hardware#4: D-062 standard
+classes, every multi-pin net classed, DRC unchanged on KiCad 10.0.3; D-063 TI's JSON in `reference/`). C1 and the gate
+in #5: the seven copied scripts are wrappers around the plugin at `v0.1.0`, and a `plugin-gates` CI job runs
+netclasses / pcb_rules (`--no-drc`) / review with ratchet limits at today's counts (D-064); D-065 keeps 0.15 mm on the
+24 V gate nets (A7 can't be met at the DRV8711's 0.2 mm pad gaps). C3: full review of f3e1fbb under way; findings go
+to the pendulum's tracker for the owner's fix-or-accept.
 
 ### Phase D: measure (paid model runs, run by hand)
 

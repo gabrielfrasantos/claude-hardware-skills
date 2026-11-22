@@ -62,6 +62,12 @@ DESIGN = textwrap.dedent('''
         sh.nc_unused(u, r"^P[A-Z][0-9]+$")
         if values.get("netclass"):
             sh.netclass("+3V3", "PWR_1A")
+        if values.get("table"):
+            sh.netclass("LED", "SIGNAL")
+            sh.class_table(215.9, 20.32)
+        if values.get("crowd"):
+            r2 = sh.part("Device:R", "R2", "10k", (53.34, 60.96), fp="Resistor_SMD:R_0402", lcsc="C2", mpn="R-1")
+            sh.nets(r2, {"1": "+3V3", "2": "LED"})
 ''')
 
 
@@ -136,11 +142,31 @@ class Build(unittest.TestCase):
     def test_netclass_directive(self):
         p = Project()
         (p.dir / "schgen" / "values.json").write_text(json.dumps({"R1": "10k", "netclass": True}))
-        code, _, out = p.build()
-        self.assertEqual(code, 0, out)
+        code, project, out = p.build()
         text = (p.dir / "hw" / "main.kicad_sch").read_text()
         self.assertEqual(text.count("(netclass_flag"), 1)
         self.assertIn('(property "Net Class" "PWR_1A"', text)
+        self.assertEqual(code, 1)
+        self.assertIn("main: text 'PWR_1A' overlaps '+3V3'", project.lint)
+
+    def test_class_table_keeps_flags_off_the_circuit(self):
+        p = Project()
+        (p.dir / "schgen" / "values.json").write_text(json.dumps({"R1": "10k", "netclass": True, "table": True}))
+        code, _, out = p.build()
+        self.assertEqual(code, 0, out)
+        text = (p.dir / "hw" / "main.kicad_sch").read_text()
+        self.assertEqual(text.count("(netclass_flag"), 2)
+        self.assertIn("Net classes", text)
+        flags = [line for line in text.split("(netclass_flag")[1:]]
+        self.assertTrue(all("(at 2" in f.split("(uuid")[0] for f in flags))               # in the table, x > 200
+        self.assertIn('(label "LED"', text)
+
+    def test_overlapping_text_is_lint(self):
+        p = Project()
+        (p.dir / "schgen" / "values.json").write_text(json.dumps({"R1": "10k", "crowd": True}))
+        code, project, out = p.build()
+        self.assertEqual(code, 1, out)
+        self.assertTrue(any("overlaps" in item for item in project.lint), project.lint)
 
     def test_load_pinmap(self):
         d = pathlib.Path(tempfile.mkdtemp()) / "m.txt"

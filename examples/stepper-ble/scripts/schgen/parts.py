@@ -39,34 +39,52 @@ CAP = {
 }
 
 
-def R(sh, ref, value, at, top, bottom, **fields):
-    fp, mpn, lcsc = RES[value]
-    p = sh.part("Device:R", ref, value.replace(" 1W", ""), at, fp=fp, lcsc=lcsc, mpn=mpn, **fields)
-    sh.nets(p, {"1": top, "2": bottom})
+OTHER = {
+    "22u L": ("Device:L", "Inductor_SMD:L_Sunlord_SWPA4030S", "SWPA4030S220MT", "C83472"),
+    "2.2u L": ("Device:L", "Inductor_SMD:L_0805_2012Metric", "LQM21PN2R2MC0D", "C98033"),
+    "10n L": ("Device:L", "Inductor_SMD:L_0402_1005Metric", "LQG15WZ10NJ02D", "C3911026"),
+    "100u 50V": ("Device:C_Polarized", "Capacitor_SMD:CP_Elec_8x10", "RVT1H101M0810", "C72480"),
+    "3A fast": ("Device:Fuse", "Fuse:Fuse_Littelfuse-NANO2-451_453", "0451003.MRL", "C13982"),
+    "10k B3380": ("Device:Thermistor_NTC", R0402, "NCP15XH103F03RC", "C77131"),
+}
+
+
+def _lookup(value):
+    if value in RES:
+        fp, mpn, lcsc = RES[value]
+        return "Device:R", fp, mpn, lcsc, value.replace(" 1W", "")
+    if value in CAP:
+        fp, mpn, lcsc = CAP[value]
+        return "Device:C", fp, mpn, lcsc, value
+    lib, fp, mpn, lcsc = OTHER[value]
+    return lib, fp, mpn, lcsc, value.replace(" L", "")
+
+
+def series(sh, ref, value, x, y, flip=False, **fields):
+    """A two-pin part lying horizontally between (x, y) and (x + 7.62, y): pin 1 on the left, or the right when
+    `flip`."""
+    lib, fp, mpn, lcsc, shown = _lookup(value)
+    return sh.part(lib, ref, shown, (x + 3.81, y), rot=90, mirror="y" if flip else None, fp=fp, lcsc=lcsc,
+                   mpn=mpn, **fields)
+
+
+def shunt(sh, ref, value, x, y, bottom="GND", flip=False, **fields):
+    """A two-pin part standing between (x, y) and (x, y + 7.62): pin 1 on top, or at the bottom when `flip`.
+    The bottom pin goes on `bottom` (a stub and its label or power symbol); None leaves it to the caller."""
+    lib, fp, mpn, lcsc, shown = _lookup(value)
+    p = sh.part(lib, ref, shown, (x, y + 3.81), mirror="x" if flip else None, fp=fp, lcsc=lcsc, mpn=mpn, **fields)
+    p.top, p.bottom = (p["2"], p["1"]) if flip else (p["1"], p["2"])
+    if bottom:
+        sh.net(p.bottom, bottom)
     return p
-
-
-def C(sh, ref, value, at, top, bottom, **fields):
-    fp, mpn, lcsc = CAP[value]
-    p = sh.part("Device:C", ref, value, at, fp=fp, lcsc=lcsc, mpn=mpn, **fields)
-    sh.nets(p, {"1": top, "2": bottom})
-    return p
-
-
-def row(sh, kind, x0, y, items, pitch=10.16):
-    """Place [(ref, value, top_net, bottom_net), ...] left to right at y."""
-    f = R if kind == "R" else C
-    return [f(sh, ref, value, (x0 + i * pitch, y), top, bottom) for i, (ref, value, top, bottom) in enumerate(items)]
 
 
 def classes(sh, mapping, default="SIGNAL"):
-    """Net-class directives: `mapping` {net: class}; every other net drawn on this sheet gets `default`.
-    Called last on each sheet, so no net is left in Default (pcb-copper §1). Nets drawn on several sheets are
-    classed on the first sheet that names them in `mapping`, or by default on the sheet that draws them first."""
+    """Net-class directives for every net drawn on this sheet (`mapping`, else `default`), drawn in the sheet's
+    class table. A net drawn on several sheets is classed on the first."""
     done = sh.project.__dict__.setdefault("_classed", set())
     for net in dict.fromkeys(n for _, n, _ in sh.conns):
         if net in done:
             continue
-        if net in mapping or default:
-            sh.netclass(net, mapping.get(net, default))
-            done.add(net)
+        sh.netclass(net, mapping.get(net, default))
+        done.add(net)

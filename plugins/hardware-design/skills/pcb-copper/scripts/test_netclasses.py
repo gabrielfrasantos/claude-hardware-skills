@@ -138,6 +138,27 @@ class Assign(unittest.TestCase):
         self.assertIn("not on a label, left to KiCad: CLK", out.getvalue())
 
 
+TABLE_SCH = """(kicad_sch (version 20260306) (generator "eeschema")
+\t(label "BUCK_FB" (at 100 50 180))
+\t(wire (pts (xy 100 50) (xy 110 50)))
+\t(netclass_flag "" (length 2.54) (at 110 50 270) (property "Netclass" "SIGNAL" (at 113 50 0)))
+\t(symbol (lib_id "power:+24V") (at 100 60 90) (property "Reference" "#PWR01" (at 0 0 0)) (property "Value" "VM" (at 0 0 0)))
+\t(wire (pts (xy 100 60) (xy 110 60)))
+\t(netclass_flag "" (length 2.54) (at 110 60 270) (property "Netclass" "PWR_3A_30V" (at 113 60 0)))
+)
+"""
+
+
+class AssignTable(unittest.TestCase):
+    def test_flags_wired_to_labels_and_power_symbols(self):
+        d = tempfile.mkdtemp()
+        with open(os.path.join(d, "b.kicad_sch"), "w") as f:
+            f.write(TABLE_SCH)
+        assign, unresolved = N.directive_assignments(os.path.join(d, "b.kicad_sch"))
+        self.assertEqual(assign, {"/BUCK_FB": "SIGNAL", "VM": "PWR_3A_30V"})
+        self.assertEqual(unresolved, [])
+
+
 class Flow(unittest.TestCase):
     def test_apply_then_check(self):
         p = Project({"VBUS": ["PWR_4A"], "CLK": ["CLK"], "USB_P": ["DIFF_90"]},

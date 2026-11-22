@@ -16,6 +16,13 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
   - arrangements (an LED ring, a row of test pads, a connector's ESD chain in signal order) → place and **lock** them, or move only other parts with `--only`;
   - areas that must stay free (a bracket strip, the battery's footprint, an antenna's clearance) → a **rule area that forbids footprints** (*Place → Rule Area*, *Footprints* not allowed). DRC custom rules are not seen by the optimizer.
 - **You (Claude) place the rest**: optimizer first, then your own refinement following the domain skills, then the owner's review of the rendered result. The gate's numbers alone never approve a placement.
+- **What a good placement looks like** (the owner's review checks these; the metrics don't):
+  - Each **support part sits at the pin it serves**: next to that pin, pointing straight out from the IC with the shared pad toward the pin, lined up with the pin.
+  - **One decoupling capacitor per supply pin.** Spread the capacitors over the IC's supply pins; don't stack them all at the one nearest the IC's centre.
+  - **Bulk capacitors sit at the stage they feed**: a motor driver's bulk at its bridges, a buck's input capacitors at its VIN pin. The input connector is the wrong place.
+  - **Parts that measure something sit at what they measure** (an NTC between the FETs), however their nets pull. Their bias and filter parts sit at the ADC pin.
+  - **Leave a lane for the reference**: about 0.9 mm between neighbouring 0402s, so a 1 mm reference fits beside them. Then run `pcb-design-rules` `silk.py apply`. A reference it can't place means a part has no lane.
+  - The worked example (`examples/stepper-ble/scripts/make_board.py place`) applies these rules automatically to every two- to four-pad part, around the owner's anchors.
 
 ## 2. Workflow
 
@@ -40,7 +47,7 @@ The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assign
 | Sees | Does not see |
 |---|---|
 | ratsnest length of every signal net (Manhattan MST of its pads; ground and poured nets are planes and left out) | rotation and side: both are kept; rotate parts yourself, then `--refine` |
-| decoupling capacitor to the nearest IC pad on its supply, weighted × 2 | which IC pin a capacitor belongs to beyond "nearest on its net" |
+| decoupling capacitor to the nearest IC pad on its supply, weighted × 2 | which IC pin a capacitor belongs to beyond "nearest on its net"; that bulk capacitors belong at their stage, not the nearest IC; room for references |
 | courtyard overlaps, the board outline inset by `--edge-mm` (0.5), footprint keep-outs | the assembler's package-pair spacing and edge keep-outs (the gate checks them, §4.1; fix with `--refine` or by hand); DRC custom rules; thermal, mechanical, RF or hot-loop intent |
 | | ratsnest crossings (the gate measures them; the cost does not) |
 

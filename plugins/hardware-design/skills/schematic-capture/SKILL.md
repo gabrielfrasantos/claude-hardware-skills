@@ -34,7 +34,20 @@ These are the conventions:
   - **spare and unused parts**: unused gates and op-amp sections with how they are tied off, and not-fitted parts (`DNP`) with why.
 - **Every named net has a label**, so net names (and the PCB's nets and net classes) don't depend on the drawing. Nets used on several sheets become global labels by themselves. Power nets listed in `POWER_SYMBOLS` are drawn as power symbols.
 - **Every pin has a net or a no-connect.** `build` refuses anything else, and duplicate references too.
-- The build fails on **layout lint**: a wire crossing a part, or a pin touching a wire mid-span.
+- **Draw the circuit, not a list of labels.** Wires carry the signal flow from left to right:
+  - **parts in series** (fuse, inductor, series resistor, diode) lie horizontally in the path (`rot=90`);
+  - **parts in shunt** (decoupling, bulk, pull-downs, TVS) stand vertically between the rail they hang from and a ground or power symbol;
+  - **rails** (`sh.rail`, `sh.vrail`) join the pins of one net, with a power symbol at a `tap`;
+  - a **bridge** is drawn as one: high side over low side, the phase node between them, the sense resistor under the low sides.
+  - Labels are for nets that leave the block or the sheet, and for the pins of dense ICs, whose 2.54 mm pin pitch leaves no room for a wired part (an MCU's I/O, a gate driver's logic and supply pins). Their supply and pull-up parts are then drawn as a small wired group nearby.
+  - Use power symbols for the supplies and ground (`POWER_SYMBOLS`).
+- **Net classes go in a table** (`sh.class_table(x, y)`), one per sheet, clear of the circuit: each row is the net's label or power symbol wired to its class flag. A class flag placed on the circuit's own label overlaps it, and the lint fails the build.
+- **No text overlaps anything.** References, values, labels, notes and class names must not overlap each other, any part's body or pins, or the sheet border.
+  - This is lint: `build` fails on it.
+  - Space two-pin parts with values at least 5 grid units (12.7 mm) apart, and more for long values.
+  - Hide a value repeated on many identical parts (`p.hide_value`), and say it once in the note ("Q301-Q308: CSD18543Q3A").
+  - Move an IC's reference with `p.fpos = (dx, dy, "left" | "right")` when both its top and bottom have pins.
+- The build fails on **layout lint**: a wire crossing a part, a pin touching a wire mid-span, or overlapping text.
 
 ## 3. The API (`schgen/sch.py`)
 
@@ -54,12 +67,17 @@ def build(project, values):
     sh.link(r1["2"], u["12"], "IMU_INT")                           # pin to pin
     sh.path("SPI1_SCK", [r5["1"], (150.0, 80.0), u["24"]])         # a polyline
     sh.netclass("VBAT", "PWR_4A")                                  # net-class directive (pcb-copper)
+    sh.class_table(276.86, 20.32)                                  # draw this sheet's directives as a table
     sh.assign_pins(u, load_pinmap("pinmap.txt"))                   # MCU pins from the pin map (§4)
     sh.nc_unused(u, r"^P[A-Z][0-9]+$")                             # remaining I/O pins: no-connect
     sh.note(20.32, 132.08, ["Decoupling per DS13252 s6.1.6: ...", "..."])
 ```
 
 Symbols come from KiCad's libraries (found automatically, or `SYMBOL_DIR` / `$KICAD10_SYMBOL_DIR`) and the project's own libraries (`PROJECT_LIBRARIES`).
+
+`sh.part(..., mirror="x" | "y")` flips a symbol without rotating it. Use it to keep a part's pin 1 where the netlist had it while the drawing changes; its text then keeps the normal placement. An IC's reference and value go on the side of its body that has no pins; when both sides have pins, set `p.fpos`.
+
+**Project symbols you draw** (hand transcription, §6): centre a lone pin on an edge, and put power and ground pins on the top and bottom edges so their symbols don't collide with the neighbouring signal labels. On parts too small for readable pin names (an RF IPD, a 6-pad CSP), hide the names and keep the numbers.
 
 ## 4. Function nets and the pin map
 
@@ -75,7 +93,7 @@ Hardware picks the MCU pins after placement (docs/design.md §4):
 
 | Command | Needs | What it proves |
 |---|---|---|
-| `schgen.py build config.py` | symbols | every pin decided, no duplicate references, no layout lint; writes `expected.json` |
+| `schgen.py build config.py` | symbols | every pin decided, no duplicate references, no layout lint (wires through parts, pins mid-wire, overlapping or off-sheet text); writes `expected.json` |
 | `schgen.py check config.py` | kicad-cli | KiCad's netlist has exactly the intended nets, names and pins |
 | `schgen.py equivalence config.py <rev\|file.net>` | kicad-cli, git | after a drawing-only change: same parts, fields and pin-to-net partition as before (`--allow-renames` reports net renames instead of failing) |
 | `library_check.py board.kicad_pcb` | nothing | every placed symbol's pins have pads on its footprint, and the reverse; every BOM part has a footprint, LCSC and MPN (`--fields`); no part missing from the board |
@@ -97,8 +115,9 @@ The easyeda2kicad step was not run in the build environment of this skill (no ne
 ## 7. Checklist
 
 - [ ] One module per sheet; references n01–n99; titled boxes with sourced design notes; root page describes every sheet.
-- [ ] `build` passes with no lint; `expected.json` committed; `check` passes.
-- [ ] Power nets carry their `PWR_<I>A` / `GND` class (`sh.netclass`); every net has a class (`pcb-copper`).
+- [ ] The circuit is wired along its signal flow: series parts horizontal, shunt parts from rails to symbols, labels only where a net leaves or an IC's pins are dense.
+- [ ] `build` passes with no lint (no overlapping text either); `expected.json` committed; `check` passes; ERC clean.
+- [ ] Power nets carry their `PWR_<I>A` / `GND` class (`sh.netclass`); every net has a class (`pcb-copper`), drawn in the sheet's class table.
 - [ ] Function nets drawn; pin map applied after placement; freeze logged.
 - [ ] `library_check.py` passes; every BOM part has LCSC and MPN.
 - [ ] Drawing-only changes proven with `equivalence`.

@@ -441,7 +441,7 @@
       "+3V3": [
         "PWR_0p5A"
       ],
-      "/2 Power/+5V": [
+      "+5V": [
         "PWR_0p5A"
       ],
       "/2 Power/+5V_BUCK": [
@@ -467,66 +467,6 @@
       ],
       "/2 Power/VIN_RAW": [
         "PWR_3A_30V"
-      ],
-      "/3 Stepper driver/A1HS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/A1LS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/A2HS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/A2LS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/AOUT1": [
-        "PWR_2A_30V"
-      ],
-      "/3 Stepper driver/AOUT2": [
-        "PWR_2A_30V"
-      ],
-      "/3 Stepper driver/B1HS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/B1LS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/B2HS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/B2LS": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/BOUT1": [
-        "PWR_2A_30V"
-      ],
-      "/3 Stepper driver/BOUT2": [
-        "PWR_2A_30V"
-      ],
-      "/3 Stepper driver/DRV_BEMF": [
-        "ANALOG"
-      ],
-      "/3 Stepper driver/DRV_CP1": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/DRV_CP2": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/DRV_V5": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/DRV_VCP": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/DRV_VINT": [
-        "SIGNAL"
-      ],
-      "/3 Stepper driver/ISENA": [
-        "PWR_2A"
-      ],
-      "/3 Stepper driver/ISENB": [
-        "PWR_2A"
       ],
       "/4 MCU/BOOT0": [
         "SIGNAL"
@@ -573,10 +513,55 @@
       "/6 USB, debug and user IO/USB_SHIELD": [
         "GND"
       ],
+      "A1HS": [
+        "SIGNAL"
+      ],
+      "A1LS": [
+        "SIGNAL"
+      ],
+      "A2HS": [
+        "SIGNAL"
+      ],
+      "A2LS": [
+        "SIGNAL"
+      ],
+      "AOUT1": [
+        "PWR_2A_30V"
+      ],
+      "AOUT2": [
+        "PWR_2A_30V"
+      ],
+      "B1HS": [
+        "SIGNAL"
+      ],
+      "B1LS": [
+        "SIGNAL"
+      ],
+      "B2HS": [
+        "SIGNAL"
+      ],
+      "B2LS": [
+        "SIGNAL"
+      ],
       "BEMF_ADC": [
         "ANALOG"
       ],
+      "BOUT1": [
+        "PWR_2A_30V"
+      ],
+      "BOUT2": [
+        "PWR_2A_30V"
+      ],
       "BUTTON": [
+        "SIGNAL"
+      ],
+      "DRV_BEMF": [
+        "ANALOG"
+      ],
+      "DRV_CP1": [
+        "SIGNAL"
+      ],
+      "DRV_CP2": [
         "SIGNAL"
       ],
       "DRV_DIR": [
@@ -609,8 +594,23 @@
       "DRV_STEP": [
         "SIGNAL"
       ],
+      "DRV_V5": [
+        "SIGNAL"
+      ],
+      "DRV_VCP": [
+        "SIGNAL"
+      ],
+      "DRV_VINT": [
+        "SIGNAL"
+      ],
       "GND": [
         "GND"
+      ],
+      "ISENA": [
+        "PWR_2A"
+      ],
+      "ISENB": [
+        "PWR_2A"
       ],
       "LED_FAULT": [
         "SIGNAL"

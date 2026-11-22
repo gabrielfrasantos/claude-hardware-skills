@@ -808,10 +808,11 @@ def dru_block(fab_min, fabs, layers, low_classes, roles=None, teardrops=None):
         lines += ['(rule "fab: inner-layer track width"', "  (layer inner)",
                   f"  (constraint track_width (min {mm(fab_min['inner_track'])})))"]
     # 180 = straight, 135 = 45-degree bend, 90 = right angle. KiCad also flags tees, Y-branches and turns at
-    # vias with this rule, but not tracks meeting at a pad. Write (min 135), never (min 135deg): the unit
-    # makes KiCad drop the whole file without an error.
+    # vias with this rule, but not tracks meeting at a pad. Write (min 134), never (min 135deg): the unit
+    # makes KiCad drop the whole file without an error. KiCad takes the limit in whole degrees (134.5 acts as
+    # 135); one degree absorbs the rounding of 45-degree segments an autorouter writes on its own grid.
     lines += ['(rule "quality: 45-degree corners only (no 90-degree or acute corners, no mid-track branches)"',
-              f"  (constraint track_angle (min {MIN_CORNER})))",
+              f"  (constraint track_angle (min {MIN_CORNER - 1})))",
               END]
     return "\n".join(lines) + "\n"
 

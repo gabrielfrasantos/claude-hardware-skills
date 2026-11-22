@@ -61,7 +61,7 @@ python3 scripts/test_pcb_rules.py && python3 scripts/test_copper.py   # self-tes
   - NPTH minimum drill;
   - inner-layer track width, where the fab has one (Seeed 4+ layers);
   - SMD pad-to-pad clearance, **only between net classes whose clearance is below it** (see §4);
-  - `track_angle (min 135)`: **45° corners only**. No 90° or acute corners, and no branches in the middle of a track or on a via (§4 lists exactly what KiCad flags).
+  - `track_angle (min 134)`: **45° corners only**. The 1° tolerance absorbs an autorouter's rounding (Freerouting's 45° bends land at 134.96°); KiCad reads the limit in whole degrees, so 134.5 would act as 135 (KiCad 10.0.8, 2026-11-22). No 90° or acute corners, and no branches in the middle of a track or on a via (§4 lists exactly what KiCad flags).
 - **`--netclasses`**: raises the Default net class to the profile's design values. It only raises, never lowers. Other classes (power, HV, USB) stay yours to set from the domain skill.
 - **Teardrops** (unless `--no-teardrops`): KiCad 10 keeps a `(teardrops … (enabled yes|no))` block on every pad and via. `apply` turns it on for every netted copper pad and every via, inserting KiCad's own default block where there is none, and off for nets of the `--teardrop-classes` (default `DIFF_*,RF_*`) and nets matching `--teardrop-exclude`. Why: teardrops add mechanical strength and tolerate drill misregistration at drilled pads and vias [KICAD-TD]; JLCPCB advises considering them where the annular ring is small [JLC-TD]. On SMD pads they are optional, and they change the impedance of a matched line where it meets a pad or via. It also turns the project defaults on (*Board Setup → Teardrops*: SMD pads, PTH pads, vias), so new items get them. The choice is recorded in the managed block, and `check` reads it back.
 - **Stack-up roles**: `# stackup: F.Cu=SIG In1.Cu=GND …` in the managed block, from `--stackup` or the template for the layer count (§3.2). `check` uses them to find each signal layer's reference plane and the layers that must be solid ground.
@@ -212,7 +212,7 @@ A board that departs from its template (e.g. power pours on an inner layer you c
 ## 4. KiCad rule-engine facts (verified on KiCad 10.0.6)
 
 - **A rules file that does not parse is silently ignored.** DRC runs with no custom rules and reports nothing. `apply` therefore runs DRC on a temporary copy with a canary rule and fails unless the canary fires; the fab-floor pass carries its own canary.
-  - A unit in `track_angle` (`(min 135deg)`) makes the whole file invalid. Write `(min 135)`.
+  - A unit in `track_angle` (`(min 135deg)`) makes the whole file invalid. Write a bare number, `(min 134)`.
   - `track_segment_length` is not in 10.0.6 (it is on KiCad's development branch). Any file containing it is dropped. `check` measures segment lengths instead.
 - **`track_angle`** measures the angle between connected segments: straight = 180, a 45° bend = 135, a right angle = 90. Measured with `(min 135)`:
   - flagged: 90° corners, acute corners, tees (90°), Y-branches (45°), 90° turns on a via, and same-net tracks crossing mid-segment;

@@ -36,6 +36,9 @@ SAME = {"SOIC": "SO", "SOP": "SO", "SO": "SO", "VFQFPN": "QFN", "UFQFPN": "QFN",
         "TQFP": "QFP", "LQFP": "QFP", "QFP": "QFP", "VSSOP": "MSOP", "MSOP": "MSOP"}
 CODED = re.compile(r"(?<![A-Z])(SOT|SOD|SC|TO)-?(\d+)(?:-(\d+))?")   # the number is a package code, not pins
 DEFAULT_PINS = {"SOT-23": 3}
+# Vendor names for the same body: Diodes Inc calls the 5- and 6-lead SOT-23 "SOT25" and "SOT26" (its AP2112K-x.x
+# is listed by JLCPCB as SOT-25-5 and drawn in KiCad as SOT-23-5).
+CODED_ALIASES = {"SOT-25": ("SOT-23", 5), "SOT-26": ("SOT-23", 6)}
 # Names vendors use for the same shrink small-outline bodies: TI's DCT (2.95 x 2.8 mm, 0.65 mm) is SSOP-8 in KiCad
 # and "MSOP-8-2.8mm" at LCSC. Within this group the body size decides, not the name.
 SHRINK = {"SSOP", "MSOP", "TSSOP"}
@@ -71,6 +74,8 @@ def _shape(text):
     if coded:
         fam = f"{coded.group(1)}-{coded.group(2)}"
         pins = int(coded.group(3)) if coded.group(3) else DEFAULT_PINS.get(fam)
+        if fam in CODED_ALIASES and pins in (None, CODED_ALIASES[fam][1]):
+            fam, pins = CODED_ALIASES[fam]
         return None, fam, pins, None
     for f in PIN_FAMILIES:
         m = re.search(rf"(?<![A-Z]){f}-?(\d+)", t)

@@ -85,9 +85,57 @@ class Sizing(unittest.TestCase):
         self.assertEqual(N.clearance_for(120), 0.80)
         self.assertEqual(N.clearance_for(12), 0.13)
         self.assertFalse(N.spec("PWR_1A", design, 0.035, 0.0152, 10)["pour"])
+        self.assertTrue(N.spec("PWR_3A", design, 0.035, 0.0152, 10)["pour"])   # at 3 A itself, not only above
         self.assertEqual(N.spec("SIGNAL", design, 0.035, 0.0152, 10)["track_width"], 0.15)
         with self.assertRaises(SystemExit):
             N.spec("PWR_1A_600V", design, 0.035, 0.0152, 10)
+
+
+ROOT_SCH = """(kicad_sch (version 20260306) (generator "eeschema")
+\t(sheet
+\t\t(at 30 60) (size 80 30)
+\t\t(property "Sheetname" "2 Power" (at 30 59 0))
+\t\t(property "Sheetfile" "power.kicad_sch" (at 30 91 0))
+\t)
+\t(label "TOP" (at 10 10 0))
+\t(netclass_flag "" (length 2.54) (shape round) (at 10 10 0) (property "Netclass" "SIGNAL" (at 11 7 0)))
+)
+"""
+POWER_SCH = """(kicad_sch (version 20260306) (generator "eeschema")
+\t(global_label "VM"
+\t\t(shape bidirectional)
+\t\t(at 139.7 100.33 90)
+\t)
+\t(label "BUCK_FB" (at 50.8 20.32 0))
+\t(label "A/B" (at 60.96 20.32 0))
+\t(netclass_flag ""
+\t\t(length 2.54)
+\t\t(at 139.7 100.33 0)
+\t\t(property "Netclass" "PWR_3A_30V" (at 141 98 0))
+\t)
+\t(netclass_flag "" (length 2.54) (at 50.8 20.32 0) (property "Net Class" "SIGNAL" (at 52 18 0)))
+\t(netclass_flag "" (length 2.54) (at 60.96 20.32 0) (property "Net Class" "ANALOG" (at 62 18 0)))
+\t(netclass_flag "" (length 2.54) (at 99 99 0) (property "Net Class" "CLK" (at 100 97 0)))
+)
+"""
+
+
+class Assign(unittest.TestCase):
+    def test_directives_to_project(self):
+        d = tempfile.mkdtemp()
+        for name, text in (("b.kicad_sch", ROOT_SCH), ("power.kicad_sch", POWER_SCH)):
+            with open(os.path.join(d, name), "w") as f:
+                f.write(text)
+        pro = os.path.join(d, "b.kicad_pro")
+        with open(pro, "w") as f:
+            json.dump({"net_settings": {"classes": [{"name": "Default"}]}}, f)
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(N.main(["assign", pro]), 0)
+        got = json.load(open(pro))["net_settings"]["netclass_assignments"]
+        self.assertEqual(got, {"/TOP": ["SIGNAL"], "VM": ["PWR_3A_30V"], "/2 Power/BUCK_FB": ["SIGNAL"],
+                               "/2 Power/A{slash}B": ["ANALOG"]})            # global as is, local with sheet path
+        self.assertIn("not on a label, left to KiCad: CLK", out.getvalue())
 
 
 class Flow(unittest.TestCase):

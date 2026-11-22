@@ -2,6 +2,7 @@
 """netclasses.py: the standard net-class set, sized from the class name (KiCad 10+).
 
     netclasses.py size <amps> [--dt 10] [--outer-mm 0.035] [--inner-mm 0.0175]
+    netclasses.py assign <project.kicad_pro>
     netclasses.py apply <project.kicad_pro | board.kicad_pcb> [--dt 10] [--fab jlcpcb] [--allow NAME,...]
     netclasses.py check <board.kicad_pcb> [--dt 10] [--fab ...] [--allow ...] [--gate NAME=LIMIT]
                         [--report r.md] [--json r.json]
@@ -22,6 +23,9 @@ the assignment into the project. The name carries what sizes the class:
                       conductors (B2) and uncoated component terminations (A7), at least the fab's design value. Above 500 V: a safety standard, not this tool.
 Decimals: PWR_2.5A or PWR_2p5A.
 
+assign  what KiCad does when it saves the schematic: resolves each net-class directive label to its net and writes
+        netclass_assignments into the project. For headless flows (CI, an agent without KiCad's window); a
+        directive that doesn't sit on a label is reported and left to KiCad.
 apply   adds or updates each standard class in use (from assignments, patterns or the class list) in the
         project. Other classes are reported, not touched.
 check   every net in a standard class (Default is an error); class values as apply would write them; every
@@ -129,9 +133,10 @@ def spec(name, design, outer_mm, inner_mm, dt):
          "via_drill": design["via_drill"], "via_diameter": design["via_diameter"],
          "impedance": p["kind"] in IMPEDANCE, "pour": False}
     if p["amps"]:
-        s["track_width"] = round(max(design["track"], width_mm(p["amps"], dt, outer_mm)), 3)
+        outer = max(design["track"], width_mm(p["amps"], dt, outer_mm))
+        s["track_width"] = round(outer, 3)
         s["inner_width"] = round(max(design["track"], width_mm(p["amps"], dt, inner_mm)), 3)
-        s["pour"] = s["track_width"] >= width_mm(POUR_AMPS_1OZ, dt, OZ_MM) - 1e-9
+        s["pour"] = outer >= width_mm(POUR_AMPS_1OZ, dt, OZ_MM) - 1e-9      # unrounded: exactly 3 A on 1 oz is a pour
     else:
         s["track_width"] = s["inner_width"] = design["track"]
     return s
@@ -200,6 +205,103 @@ def cmd_apply(a):
         print(f"  {s['name']:18} {s['track_width']:7.3f} {s['inner_width']:7.3f} {s['clearance']:6.3f}  {note}")
     if unknown:
         print("  not standard (left as they are; rename or pass --allow): " + ", ".join(unknown))
+    return 0
+
+
+# ------------------------------------------------------------------------------------------------- assign
+_SHEET = re.compile(r'\(sheet\s.*?\(property\s+"Sheetname"\s+"((?:[^"\\]|\\.)*)".*?\(property\s+"Sheetfile"\s+'
+                    r'"((?:[^"\\]|\\.)*)"', re.S)
+_LABEL = re.compile(r'\((label|global_label|hierarchical_label)\s+"((?:[^"\\]|\\.)*)".*?\(at\s+([-\d.]+)\s+([-\d.]+)',
+                    re.S)
+_FLAG = re.compile(r'\(netclass_flag\s.*?\(at\s+([-\d.]+)\s+([-\d.]+).*?\(property\s+"Net ?[Cc]lass"\s+'
+                   r'"((?:[^"\\]|\\.)*)"', re.S)          # "Net Class" as schgen writes it, "Netclass" once KiCad saved it
+
+
+def _blocks(text, head):
+    """S-expression blocks that start with `(head` and whitespace: balanced by parentheses, strings respected."""
+    out = []
+    for m in re.finditer(r"\(" + re.escape(head) + r"\s", text):
+        i = m.start()
+        depth, j, in_str = 0, i, False
+        while j < len(text):
+            ch = text[j]
+            if in_str:
+                in_str = not (ch == '"' and text[j - 1] != "\\")
+            elif ch == '"':
+                in_str = True
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    break
+            j += 1
+        out.append(text[i:j + 1])
+    return out
+
+
+def directive_assignments(root_sch):
+    """{net name: class} from the net-class directive labels of a hierarchical KiCad 10 schematic, without KiCad.
+
+    A directive resolves to the label it sits on (schgen puts it on a label point; a hand-drawn one on a label is
+    found too). Net names follow KiCad: a global label's name as it is, a local or hierarchical one prefixed with its
+    sheet path (/2 Power/VM). Returns (assignments, unresolved directives as (file, x, y, class))."""
+    assign, unresolved = {}, []
+
+    def walk(path, prefix, seen):
+        if path in seen or not os.path.exists(path):
+            return
+        seen.add(path)
+        text = open(path, encoding="utf-8").read()
+        labels = {}
+        for kind in ("label", "global_label", "hierarchical_label"):
+            for blk in _blocks(text, kind):
+                m = _LABEL.match(blk)
+                if m:
+                    name = m.group(2).replace("/", "{slash}")
+                    labels[(round(float(m.group(3)), 2), round(float(m.group(4)), 2))] = \
+                        name if kind == "global_label" else prefix + name
+        for blk in _blocks(text, "netclass_flag"):
+            m = _FLAG.match(blk)
+            if not m:
+                continue
+            at = (round(float(m.group(1)), 2), round(float(m.group(2)), 2))
+            if at in labels:
+                assign[labels[at]] = m.group(3)
+            else:
+                unresolved.append((os.path.basename(path), at[0], at[1], m.group(3)))
+        for blk in _blocks(text, "sheet"):
+            m = _SHEET.match(blk)
+            if m:
+                name = m.group(1).replace("/", "{slash}")
+                walk(os.path.join(os.path.dirname(path), m.group(2)), f"{prefix}{name}/", seen)
+
+    walk(os.path.abspath(root_sch), "/", set())
+    return assign, unresolved
+
+
+def cmd_assign(a):
+    pro = project_paths(a.path)[0]
+    if not os.path.exists(pro):
+        sys.exit(f"no project file {pro}")
+    root = os.path.splitext(pro)[0] + ".kicad_sch"
+    if not os.path.exists(root):
+        sys.exit(f"no root schematic {root}")
+    assign, unresolved = directive_assignments(root)
+    with open(pro) as f:
+        pj = json.load(f)
+    ns = pj.setdefault("net_settings", {})
+    ns["netclass_assignments"] = {net: [cls] for net, cls in sorted(assign.items())}
+    with open(pro, "w") as f:
+        json.dump(pj, f, indent=2)
+        f.write("\n")
+    counts = {}
+    for cls in assign.values():
+        counts[cls] = counts.get(cls, 0) + 1
+    print(f"{len(assign)} nets assigned in {os.path.basename(pro)}: " +
+          ", ".join(f"{c} {n}" for c, n in sorted(counts.items())))
+    for f_, x, y, cls in unresolved:
+        print(f"  not on a label, left to KiCad: {cls} at ({x}, {y}) in {f_}")
     return 0
 
 
@@ -343,6 +445,8 @@ def main(argv=None):
     s.add_argument("--dt", type=float, default=DT)
     s.add_argument("--outer-mm", type=float, default=DEFAULT_OUTER_MM)
     s.add_argument("--inner-mm", type=float, default=DEFAULT_INNER_MM)
+    s = sub.add_parser("assign", help="write the schematic's net-class directives into the project, without KiCad")
+    s.add_argument("path", help="project.kicad_pro (its root schematic sits next to it)")
     for name in ("apply", "check"):
         p = sub.add_parser(name)
         p.add_argument("path" if name == "apply" else "board")
@@ -354,7 +458,7 @@ def main(argv=None):
             p.add_argument("--report")
             p.add_argument("--json")
     a = ap.parse_args(argv)
-    return {"size": cmd_size, "apply": cmd_apply, "check": cmd_check}[a.cmd](a)
+    return {"size": cmd_size, "assign": cmd_assign, "apply": cmd_apply, "check": cmd_check}[a.cmd](a)
 
 
 if __name__ == "__main__":

@@ -49,8 +49,8 @@ It writes the files above and **never overwrites** one that exists, so it also f
   ```bash
   python3 scripts/trace.py --firmware ../my-firmware
   ```
-  - **Errors (exit 1):** duplicate IDs; a requirement without a source or a verification method; an unknown verification method; a cited `D-xxx` that doesn't exist; with `--firmware`, a cited `REQ-*` the firmware repo doesn't contain.
-  - **Warnings:** a requirement citing a superseded decision; decisions no requirement cites.
+  - **Errors (exit 1):** a missing root, `docs/requirements.md` or `docs/decisions.md` (the resolved paths are printed first); a requirements file with no recognized `HW-<AREA>-<NNN>` row, naming the rows it couldn't read, or with empty tables (`--allow-empty` for a fresh scaffold); duplicate IDs; a requirement without a source or a verification method; an unknown verification method; a cited `D-xxx` that doesn't exist; with `--firmware`, a cited `REQ-*` the firmware repo doesn't contain. Zero requirements checked is never a pass: a wrong `--root` or CI working folder fails.
+  - **Warnings:** a requirement citing a superseded decision; decisions no requirement cites; a table row whose ID isn't `HW-<AREA>-<NNN>` (not checked).
 
   On a real robot-controller board it passes (33 requirements, 61 decisions), with 7 requirements that still cite a superseded decision.
 - **`PROJECT_CONTEXT.md`**: the short state of the project, to paste into a new conversation. Update it at every gate.

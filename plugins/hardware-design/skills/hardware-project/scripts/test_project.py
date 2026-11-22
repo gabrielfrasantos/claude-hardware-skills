@@ -81,6 +81,34 @@ class Trace(unittest.TestCase):
         d = self.repo("| HW-PWR-001 | a | D-001 | R |\n", "| D-001 | x | y | Superseded by D-002 |\n| D-002 | x | y | z |\n")
         self.assertTrue(any("superseded by D-002" in w for w in trace.check(d)["warnings"]))
 
+    def test_missing_inputs_fail(self):
+        missing = pathlib.Path(tempfile.mkdtemp()) / "not-a-repo"
+        code, out = quiet(trace.main, ["--root", str(missing)])
+        self.assertEqual(code, 1)
+        self.assertIn(str(missing), out)                                  # the resolved path is printed
+        self.assertIn("not found", out)
+        self.assertNotIn("PASS", out)
+        d = self.repo("| HW-PWR-001 | a | D-001 | R |\n", "| D-001 | x | y | z |\n")
+        (d / "docs" / "requirements.md").unlink()
+        code, out = quiet(trace.main, ["--root", str(d)])
+        self.assertEqual(code, 1)
+        self.assertIn(f"requirements.md: missing ({d / 'docs' / 'requirements.md'})", out)
+
+    def test_unrecognized_and_empty_tables(self):
+        d = self.repo("| REQ-1 | a | D-001 | R |\n| HW-PWR-1a | b | D-001 | R |\n", "| D-001 | x | y | z |\n")
+        r = trace.check(d)
+        self.assertEqual(r["requirements"], 0)
+        self.assertTrue(any("no recognized requirement" in e and "REQ-1" in e for e in r["errors"]), r["errors"])
+        empty = self.repo("", "")
+        self.assertTrue(any("no requirements" in e for e in trace.check(empty)["errors"]))
+        r = trace.check(empty, allow_empty=True)                          # a fresh scaffold, on purpose
+        self.assertEqual(r["errors"], [])
+        self.assertTrue(any("no requirements" in w for w in r["warnings"]))
+        mixed = self.repo("| HW-PWR-001 | a | D-001 | R |\n| HW-PWR-02b | b | D-001 | R |\n", "| D-001 | x | y | z |\n")
+        r = trace.check(mixed)
+        self.assertEqual(r["errors"], [])
+        self.assertTrue(any("'HW-PWR-02b'" in w for w in r["warnings"]), r["warnings"])
+
     def test_firmware_ids(self):
         d = self.repo("| HW-DRV-001 | a | REQ-DRIVE-002, REQ-DRIVE-099 | R |\n", "")
         fw = pathlib.Path(tempfile.mkdtemp())

@@ -1,13 +1,37 @@
 ---
 name: pcb-placement
-description: Place the unlocked footprints of a KiCad 10 board around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result against a baseline and the assembler's rules (JLCPCB package-pair spacing, edge keep-outs, fiducials, orientation); then assign the MCU's pins from the placement within what the firmware needs (alternate functions, peripheral instances, EXTI lines; boot and SWD pins reserved) and write the pin map.
+description: Build or update a KiCad 10 board from its schematic without KiCad's window (footprints, fields, nets), then place the unlocked footprints around the owner's locked anchors with a simulated-annealing optimizer (ratsnest length, decoupling distance, no overlaps, keep-outs respected), refine it, render it, and gate the result against a baseline and the assembler's rules (JLCPCB package-pair spacing, edge keep-outs, fiducials, orientation); then assign the MCU's pins from the placement within what the firmware needs (alternate functions, peripheral instances, EXTI lines; boot and SWD pins reserved) and write the pin map.
 ---
 
 # PCB placement (KiCad 10+)
 
-Use this skill after *Update PCB from Schematic*, when the owner has placed and locked the anchors and the rest of the parts wait in a staging area, and whenever a placement needs judging before routing. Bad placement is what makes routing need too many vias; fix it here, not in the router.
+Use this skill to bring the schematic onto the board (§0), then when the owner has placed and locked the anchors and the rest of the parts wait in a staging area, and whenever a placement needs judging before routing. Bad placement is what makes routing need too many vias; fix it here, not in the router.
 
-The scripts are `scripts/place.py` (placement) and `scripts/pins.py` (pin assignment); they need `pip install shapely numpy scipy matplotlib`. It reads and writes the `.kicad_pcb` directly, shares the board parser of `pcb-design-rules`, and never moves a locked footprint.
+The scripts are `scripts/sync.py` (schematic to board), `scripts/place.py` (placement) and `scripts/pins.py` (pin assignment); `sync.py` needs only Python and `kicad-cli`, the others they need `pip install shapely numpy scipy matplotlib`. It reads and writes the `.kicad_pcb` directly, shares the board parser of `pcb-design-rules`, and never moves a locked footprint.
+
+## 0. Board from the schematic (`sync.py`)
+
+KiCad's *Tools → Update PCB from Schematic* without KiCad's window, for CI and headless agents. `kicad-cli` 10 has no such command:
+
+```bash
+python3 scripts/sync.py hardware/board/board.kicad_pcb            # schematic next to it: board.kicad_sch
+python3 scripts/sync.py hardware/board/board.kicad_pcb --check    # CI: exit 1 if the board is behind the schematic
+```
+
+- It exports KiCad's netlist with `kicad-cli` (or reads `--netlist`). Footprints come from the project's `fp-lib-table` (`${KIPRJMOD}`) and then the global one (`~/.config/kicad/10.0/fp-lib-table`, `${KICAD10_FOOTPRINT_DIR}`).
+- **Adds** a footprint for each new symbol. New parts are parked in rows below the board outline, packed by courtyard, so they don't overlap.
+- **Updates** each footprint from the schematic:
+  - reference, value and fields (LCSC, MPN, Datasheet, …), and the link back to the symbol (path, sheet);
+  - DNP and BOM flags. A part left out of the BOM or not fitted is also left out of the position file;
+  - each pad's net, pin function and pin type.
+- **Replaces** a footprint whose library footprint changed, at the same position, rotation and lock. It refuses on the back side; replace those in KiCad.
+- **Removes** footprints whose symbol is gone. Footprints the schematic never placed (no path), such as a logo or a board-only fiducial, stay.
+- It rewrites only the footprints that change; every other byte of the file is kept. With no board file, it starts an empty KiCad 10 board (`--layers`, default 4).
+- Outline, stack-up, zones and net classes are not its job: `pcb-design-rules`, `pcb-copper`, or KiCad.
+- **Checked against KiCad 10.0.8 on the example (106 parts, 2026-11-22):**
+  - On the example's own board (built with pcbnew), the result is byte for byte the same.
+  - A board built from nothing has 0 schematic-parity errors in KiCad's DRC.
+  - Against pcbnew's board, footprint by footprint, it gives the same footprints, pad nets, pin functions and types, fields, paths, sheets and attributes. The only difference is a fab-layer `${REFERENCE}` text: the fresh board keeps the library's text item, while pcbnew's board holds a field (likely made when `silk.py apply` hid it).
 
 ## 1. Working agreement
 

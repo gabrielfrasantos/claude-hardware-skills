@@ -77,6 +77,7 @@ jobs:
           PY: ${{ github.workspace }}/.venv/bin/python
           B: hardware/stepper-ble/stepper-ble.kicad_pcb
         run: |
+          $PY $HW/pcb-placement/scripts/sync.py $B --check
           $PY $HW/pcb-design-rules/scripts/pcb_rules.py check $B --allow-unrouted --gate zone_islands=2
           $PY $HW/pcb-copper/scripts/netclasses.py check $B
           $PY $HW/pcb-design-rules/scripts/silk.py check $B

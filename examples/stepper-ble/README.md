@@ -57,6 +57,7 @@ The CI job `example-board` runs these. Results on 2026-11-22, KiCad 10.0.8:
 | `schgen.py build` | 7 sheets, 106 parts, layout lint 0 |
 | `schgen.py check` | netlist matches intent, 77 nets |
 | KiCad ERC | 0 violations |
+| `sync.py --check` | the board is in step with the schematic (no footprint would change) |
 | `library_check.py` | PASS (no pin without pad, no pad without pin, every BOM part with LCSC and MPN) |
 | `pcb_rules.py check --allow-unrouted --gate zone_islands=2` | PASS: 0 shorts, 0 clearance, 0 below fab minimum, 0 DRC errors, schematic parity 0 errors; soft: `gnd_via_max_distance_mm` (no vias yet) |
 | `netclasses.py check` | PASS |

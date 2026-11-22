@@ -32,7 +32,8 @@ flowchart LR
   SIM --> P[Placement and pins<br/>pcb-placement]
   P --> N[Net classes, fab rules<br/>pcb-copper, pcb-design-rules]
   N --> L[Routing rules<br/>power / RF / high-speed / interface]
-  L --> G[Gates: DRC, geometry, copper, assembly]
+  L --> AR[Autoroute the rest<br/>pcb-routing]
+  AR --> G[Gates: DRC, geometry, copper, assembly]
   G --> RV[Design review<br/>design-review + board-reviewer]
   RV --> F[Fab and assembly files<br/>hardware-project]
   V[Vendor reference layouts<br/>reference-block] -.-> P
@@ -53,6 +54,7 @@ logged.
 | | [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Covers op-amps, references, ADC drive and sensor front ends: protection, noise, stability |
 | | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Builds an ngspice + Python suite from the schematic: loop stability, corners, transients, protection, noise, and a report |
 | Layout | [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Builds or updates the board from the schematic without KiCad's window, places unlocked parts around the owner's locked anchors with simulated annealing, gates the result against assembly rules, and assigns MCU pins from the placement |
+| | [`pcb-routing`](plugins/hardware-design/skills/pcb-routing/SKILL.md) | Autoroutes the non-critical nets with Freerouting, headless: writes the board as a Specctra DSN (no pcbnew), runs the router, adds its tracks and vias back |
 | | [`pcb-copper`](plugins/hardware-design/skills/pcb-copper/SKILL.md) | Applies one standard net-class set (`PWR_4A`, `GND`, `DIFF_90`, `RF_50`, …). Sizes widths from current and clearances from voltage (IPC-2152 / IPC-2221) |
 | | [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Sets board rules from fab profiles (JLCPCB, Seeed), turns on teardrops, records the stack-up, and gates shorts, clearance, geometry and copper. Keeps the silkscreen to readable references only |
 | | [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Covers hot loops, gate drive, high-current copper, Kelvin sensing, thermal and isolation |
@@ -110,6 +112,7 @@ python3 $HW/pcb-design-rules/scripts/pcb_rules.py apply hardware/my-board/my-boa
 python3 $HW/pcb-placement/scripts/sync.py hardware/my-board/my-board.kicad_pcb
 python3 $HW/pcb-placement/scripts/place.py optimize hardware/my-board/my-board.kicad_pcb
 python3 $HW/pcb-placement/scripts/place.py gate hardware/my-board/my-board.kicad_pcb
+python3 $HW/pcb-routing/scripts/route.py run hardware/my-board/my-board.kicad_pcb --fetch --skip-nets 'GND|VM'   # after the critical nets
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/my-board/my-board.kicad_pcb --report pcb-quality.md
 
 # 5. Review everything into one findings file, then export for the fab

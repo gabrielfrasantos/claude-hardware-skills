@@ -52,7 +52,7 @@ logged.
 | | [`power-circuit-design`](plugins/hardware-design/skills/power-circuit-design/SKILL.md) | Covers input protection, buck/LDO rails, H-bridge and three-phase stages, gate drive, bus capacitors, current sensing, snubbers and thermal design |
 | | [`analog-circuit-design`](plugins/hardware-design/skills/analog-circuit-design/SKILL.md) | Covers op-amps, references, ADC drive and sensor front ends: protection, noise, stability |
 | | [`circuit-simulation`](plugins/hardware-design/skills/circuit-simulation/SKILL.md) | Builds an ngspice + Python suite from the schematic: loop stability, corners, transients, protection, noise, and a report |
-| Layout | [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Places unlocked parts around the owner's locked anchors with simulated annealing, gates the result against assembly rules, and assigns MCU pins from the placement |
+| Layout | [`pcb-placement`](plugins/hardware-design/skills/pcb-placement/SKILL.md) | Builds or updates the board from the schematic without KiCad's window, places unlocked parts around the owner's locked anchors with simulated annealing, gates the result against assembly rules, and assigns MCU pins from the placement |
 | | [`pcb-copper`](plugins/hardware-design/skills/pcb-copper/SKILL.md) | Applies one standard net-class set (`PWR_4A`, `GND`, `DIFF_90`, `RF_50`, …). Sizes widths from current and clearances from voltage (IPC-2152 / IPC-2221) |
 | | [`pcb-design-rules`](plugins/hardware-design/skills/pcb-design-rules/SKILL.md) | Sets board rules from fab profiles (JLCPCB, Seeed), turns on teardrops, records the stack-up, and gates shorts, clearance, geometry and copper. Keeps the silkscreen to readable references only |
 | | [`power-pcb-layout`](plugins/hardware-design/skills/power-pcb-layout/SKILL.md) | Covers hot loops, gate drive, high-current copper, Kelvin sensing, thermal and isolation |
@@ -106,7 +106,8 @@ python3 $HW/schematic-capture/scripts/schgen.py check scripts/schgen/config.py
 python3 $HW/pcb-copper/scripts/netclasses.py apply hardware/my-board/my-board.kicad_pro
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py apply hardware/my-board/my-board.kicad_pro --fab jlcpcb --netclasses
 
-# 4. Placement around your locked anchors, then the gates
+# 4. Board from the schematic (no KiCad window needed), placement around your locked anchors, then the gates
+python3 $HW/pcb-placement/scripts/sync.py hardware/my-board/my-board.kicad_pcb
 python3 $HW/pcb-placement/scripts/place.py optimize hardware/my-board/my-board.kicad_pcb
 python3 $HW/pcb-placement/scripts/place.py gate hardware/my-board/my-board.kicad_pcb
 python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/my-board/my-board.kicad_pcb --report pcb-quality.md

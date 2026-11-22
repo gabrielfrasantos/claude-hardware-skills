@@ -126,7 +126,7 @@ class Scaffold(unittest.TestCase):
         d = pathlib.Path(tempfile.mkdtemp()) / "repo"
         code, out = quiet(scaffold.main, [str(d)] + ARGS)
         self.assertEqual(code, 0)
-        for f in ("CLAUDE.md", ".gitignore", ".claude/settings.json", ".claude/agents/motor-ctl-board-reviewer.md",
+        for f in ("AGENTS.md", "CLAUDE.md", ".gitignore", ".claude/settings.json", ".claude/agents/motor-ctl-board-reviewer.md",
                   "docs/requirements.md", "docs/plan.md", "pin-data/pin-needs.txt", "scripts/schgen/config.py"):
             self.assertTrue((d / f).exists(), f)
         self.assertTrue((d / "hardware" / "motor-ctl").is_dir())
@@ -136,6 +136,7 @@ class Scaffold(unittest.TestCase):
         self.assertEqual(json.loads((d / ".claude" / "settings.json").read_text())["enabledPlugins"],
                          {"hardware-design@hardware-skills": True})
         self.assertIn("name: motor-ctl-board-reviewer", (d / ".claude/agents/motor-ctl-board-reviewer.md").read_text())
+        self.assertEqual((d / "CLAUDE.md").read_text(), "@AGENTS.md\n")
         self.assertEqual(trace.check(d)["errors"], [])
 
     def test_never_overwrites(self):

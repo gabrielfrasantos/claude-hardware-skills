@@ -57,7 +57,7 @@ order:
      applied to small passives.
 8. **The licence handling in `reference-block` is vague where the terms are strict.** TI's notice limits its resources
    to developing applications that use TI products and prohibits other reproduction and display [S36]. The plugin is
-   meant to go public (D3), and the pendulum repo commits TI-derived copper (`scripts/pcb/boost_drv8711.json`, D-040).
+   meant to go public (D3), and one board repo commits TI-derived copper (`scripts/pcb/boost_drv8711.json`, D-040).
    Both need a recorded licence decision, not "TI's own terms".
 9. **The promised footprint check does not exist.** D19 promises a footprint-vs-LCSC-package check, but
    `library_check.py` compares only symbol pins with footprint pads and checks the BOM fields. No skill cites the

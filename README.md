@@ -86,6 +86,39 @@ rules-only skills (`*-circuit-design`, `*-layout`, `circuit-simulation`) are sel
 claude.ai, or point any agent that reads Agent Skills at it. The scripts are ordinary command-line tools with
 `--help`. They don't need an agent.
 
+## Quick start
+
+The flow for a new board, as commands. In an agent session, ask for each step in words ("scaffold a board repo for a
+motor controller", "review the board"), and the matching skill runs the same scripts. `$HW` is
+`plugins/hardware-design/skills` in a checkout of this repository.
+
+```bash
+# 1. A board repo with requirements, decisions, phase gates and a reviewer agent
+python3 $HW/hardware-project/scripts/scaffold.py ../my-board --name my-board --title "my-board: what it is" \
+        --firmware owner/my-firmware --fab jlcpcb --layers 4
+cd ../my-board            # then create hardware/my-board/my-board.kicad_pro in KiCad
+
+# 2. Schematic as code, checked against the intended netlist
+python3 $HW/schematic-capture/scripts/schgen.py build scripts/schgen/config.py
+python3 $HW/schematic-capture/scripts/schgen.py check scripts/schgen/config.py
+
+# 3. Net classes and fab rules on the KiCad project
+python3 $HW/pcb-copper/scripts/netclasses.py apply hardware/my-board/my-board.kicad_pro
+python3 $HW/pcb-design-rules/scripts/pcb_rules.py apply hardware/my-board/my-board.kicad_pro --fab jlcpcb --netclasses
+
+# 4. Placement around your locked anchors, then the gates
+python3 $HW/pcb-placement/scripts/place.py optimize hardware/my-board/my-board.kicad_pcb
+python3 $HW/pcb-placement/scripts/place.py gate hardware/my-board/my-board.kicad_pcb
+python3 $HW/pcb-design-rules/scripts/pcb_rules.py check hardware/my-board/my-board.kicad_pcb --report pcb-quality.md
+
+# 5. Review everything into one findings file, then export for the fab
+python3 $HW/design-review/scripts/review.py hardware/my-board --voltage VBAT=12.6
+python3 $HW/hardware-project/scripts/export_jlcpcb.py
+```
+
+The generated `AGENTS.md` (imported by `CLAUDE.md`) lists every command and which skill covers each part of the
+work.
+
 ## Requirements
 
 | For | Needs |
@@ -135,6 +168,8 @@ evals/                                 generic eval harness
 ```
 
 ## Contributing
+
+Security issues: see [SECURITY.md](SECURITY.md).
 
 The most useful contribution is a correction backed by a primary source. See [CONTRIBUTING.md](CONTRIBUTING.md) for
 how rules are sourced, how scripts are tested and how commits become releases.

@@ -6,8 +6,8 @@ against. Change it with a new decision, not silently.
 ## 1. Goal
 
 Today the plugin is a **rules library**: eight skills that say what is right. The boards that use it
-([e-inverted-pendulum-hardware](https://github.com/embedded-pro/e-inverted-pendulum-hardware),
-[e-foc-hardware](https://github.com/embedded-pro/e-foc-hardware)) carry the rest themselves: requirements, decisions,
+(board A, a battery-powered robot controller with two H-bridges, and board B, a 50 V three-phase motor driver;
+board C, a power supply, came before them) carry the rest themselves: requirements, decisions,
 phase gates, a schematic generator, about 10k lines of PCB scripts, reviewer agents and exporters, much of it copied
 between repos. The goal is all three layers, in order:
 
@@ -21,11 +21,11 @@ Measured, not felt: every step is scored by the evals in `evals/` (D5, D30).
 
 | | Decision |
 |---|---|
-| D3 Users | Gabriel and embedded-pro first. Public later. |
+| D3 Users | The owner's boards first; public from v0.1. |
 | D4 Tools | KiCad 10 and later only. No KiCad 8/9 support code. Fabs as open profiles (`profiles/*.json`). |
 | D6 Where code lives | Scripts stay in each skill's `scripts/` for now. Target: one shared package (`hwkit`). No claude.ai single-skill zip compatibility. |
 | D13 Shared code | Skills may import from `pcb-design-rules/scripts` (parser, geometry, `kicad-cli` calls). It is the core that becomes `hwkit`. Nothing else is shared across skill folders. |
-| D22 KiCad engine | Read and write `.kicad_pcb` / `.kicad_sch` as S-expressions; `kicad-cli` for DRC, ERC, zone fill and exports. No new `pcbnew` (SWIG) code: it is deprecated since KiCad 9 and goes away. Revisit the IPC API once KiCad 11 runs it headless. Ported pendulum scripts are rewritten to this, not copied. |
+| D22 KiCad engine | Read and write `.kicad_pcb` / `.kicad_sch` as S-expressions; `kicad-cli` for DRC, ERC, zone fill and exports. No new `pcbnew` (SWIG) code: it is deprecated since KiCad 9 and goes away. Revisit the IPC API once KiCad 11 runs it headless. Ported board-repo scripts are rewritten to this, not copied. |
 | D28 Dependencies | External packages are allowed (numpy, scipy, ...). |
 | D29 Versioning | Tagged releases (release-please). Board repos' CI pins a tag; interactive sessions use `main`. As built: `.github/workflows/release.yml` writes the version into the plugin and marketplace manifests; MIT licence; CI runs the tests, a lint and the plugin validator. |
 
@@ -36,10 +36,10 @@ Measured, not felt: every step is scored by the evals in `evals/` (D5, D30).
 | `pcb-design-rules` | extend | D11: teardrops (`apply` sets KiCad 10 teardrops on vias and PTH/SMD pads; `check` fails where they are missing), pour checks (necks below minimum width, islands, unstitched ground pieces, reference-plane cuts under signal classes), stack-up templates per layer count (4L: SIG / solid GND / PWR / SIG). KiCad 10+ only. |
 | `pcb-copper` | new | D9, D21: a standard net-class set declared on the schematic's net-class directive labels, **the current in the class name** (`PWR_4A`, D9 as built: KiCad resolves labels to nets in the project, custom label fields are not carried); widths at ΔT 10 °C per layer's copper from IPC-2221's external fit, used for inner layers too (IPC-2152 found internal and external conductors close in temperature rise; IPC-2152 itself is charts); nets at or above the width of 3 A on 1 oz become required pours; a net left in Default is an error. Kelvin `SENSE` pairs with a net-tie check: later. D17: fan-out, stitching, power copper, pours, simple routes and tidy are scripted; Claude or the router does short nets; the owner routes the critical ones. |
 | `pcb-placement` | new | D7, D15, D25: the owner places and locks the anchors, which never move. Claude places the rest: an optimizer (ratsnest length and crossings under courtyard, keep-out and assembly-spacing limits), then Claude refines. Optional `propose` mode for anchors (report only). A placement gate runs before any routing; report-only until the evals set its limits (no worse than the human baseline + 10 % on ratsnest and estimated vias), then it fails. Includes pin assignment (D8, D16). |
-| `schematic-capture` | new | D10: schgen (Python design files → `.kicad_sch`) generalised from pendulum/e-psu: titled block boxes, function nets with pin TBD, `expected.json` netlist check and equivalence check. Hand-drawn schematics get the checks only. D19: KiCad standard libraries first; missing parts from LCSC/EasyEDA (`easyeda2kicad`) with a footprint-vs-LCSC-package check; hand transcription only as a fallback. D9: net-class directives with current. |
+| `schematic-capture` | new | D10: schgen (Python design files → `.kicad_sch`) generalised from boards A and C: titled block boxes, function nets with pin TBD, `expected.json` netlist check and equivalence check. Hand-drawn schematics get the checks only. D19: KiCad standard libraries first; missing parts from LCSC/EasyEDA (`easyeda2kicad`) with a footprint-vs-LCSC-package check; hand transcription only as a fallback. D9: net-class directives with current. |
 | `reference-block` | new | D18: import a vendor layout (KiCad 10 opens Altium PcbDoc), select a region, map references and nets to ours, paste it with its copper and zones. Vendor files stay gitignored. Says when copying beats designing (RF, NFC, fast power loops). |
 | `hardware-project` | new | D12: project scaffold; `requirements.md` traced to firmware `REQ-*`; `decisions.md` (D-xxx); `plan.md` with phase gates signed by the owner; `PROJECT_CONTEXT.md`; a CLAUDE.md skill table; a generic reviewer agent with a per-board rubric; the export package (review, JLCPCB, release, visual diff); BOM and JLC stock; datasheet fetch. Replaces the scripts copied between board repos. |
-| `power-circuit-design` | new | D24: the schematic side of power stages (gate drivers, bootstrap, dead time, bucks, reverse polarity, hot plug, inrush, TVS, shunt amplifiers), distilled from `foc-hardware-design-guide.md` and `robot-hardware-design-guide.md`, every number sourced. The board guides shrink to what is board-specific. |
+| `power-circuit-design` | new | D24: the schematic side of power stages (gate drivers, bootstrap, dead time, bucks, reverse polarity, hot plug, inrush, TVS, shunt amplifiers), distilled from the design guides of boards A and B, every number sourced. The board guides shrink to what is board-specific. |
 
 Existing skills (`power-pcb-layout`, `mcu-circuit-design`, `analog-circuit-design`, `circuit-simulation`,
 `high-speed-digital-layout`, `interface-layout`, `rf-layout`) stay as the rules layer.
@@ -69,24 +69,24 @@ Hardware is hard to change and firmware is easy, so **hardware picks the pins**,
   off the board, courtyard overlaps, copper added), ratsnest length, ratsnest crossings (a via estimate), decoupling
   distance; later the gate, via count, teardrop and pour checks.
 - The baseline is the human placement: the source board as its owner placed it at the pinned commit.
-- First case: pendulum placement, with its anchors taken from its decisions (the board locks nothing). e-foc's case
+- First case: board A placement, with its anchors taken from its decisions (the board locks nothing). Board B's case
   comes with its migration branch (D27). Later: a schematic case with known defects reintroduced, and a
   pin-assignment case. Review tasks are graded by hand.
 - Run by hand before each release tag, not in CI (cost).
 
 ## 6. Build order (D26)
 
-1. Eval harness (generic, here) and the pendulum placement case (in its repo). Done.
+1. Eval harness (generic, here) and the board A placement case (in its repo). Done.
 2. Extend `pcb-design-rules` (teardrops, pours, KiCad 10+ only). Done.
 3. `pcb-copper` net classes. Done; the scripted copper of D17 follows after placement.
-4. `pcb-placement` with its gate and optimizer (done: beats the owner's pendulum placement on ratsnest, crossings and decoupling distance, but not on intent the board does not encode, so the owner's review stays), then pin assignment (done: `pins.py`, Hungarian assignment over peripheral instances; the firmware's needs as text, the pin map as text).
-5. `schematic-capture` (done: schgen ported, byte-identical on e-inverted-pendulum; pin-map and net-class helpers; library check), then `hardware-project` (done: scaffold, `trace.py`, the board repos' export scripts shared), `reference-block` (done: `refblock.py` import/list/extract/place/check; round trip byte-identical on e-inverted-pendulum's TI stage; Gerber-only sources left to the board's own reader), `power-circuit-design` (done: distilled from the e-foc and e-inverted-pendulum guides, every number sourced or marked).
+4. `pcb-placement` with its gate and optimizer (done: beats the owner's placement of board A on ratsnest, crossings and decoupling distance, but not on intent the board does not encode, so the owner's review stays), then pin assignment (done: `pins.py`, Hungarian assignment over peripheral instances; the firmware's needs as text, the pin map as text).
+5. `schematic-capture` (done: schgen ported, byte-identical on board A; pin-map and net-class helpers; library check), then `hardware-project` (done: scaffold, `trace.py`, the board repos' export scripts shared), `reference-block` (done: `refblock.py` import/list/extract/place/check; round trip byte-identical on board A's TI stage; Gerber-only sources left to the board's own reader), `power-circuit-design` (done: distilled from the board B and board A guides, every number sourced or marked).
 
 ## 7. Board repos (D27)
 
-- **e-inverted-pendulum-hardware** is the first consumer. Its copied scripts are deleted as the plugin takes each one
+- **Board A** is the first consumer. Its copied scripts are deleted as the plugin takes each one
   over.
-- **e-foc-hardware** stays frozen as the human baseline for the evals. A migration branch comes later.
+- **Board B** stays frozen as the human baseline for the evals. A migration branch comes later.
 
 ## 8. Decisions after the best-practices audit (2026-11-20)
 
@@ -98,7 +98,7 @@ The audit (`docs/research/best-practices-audit.md`) checked the skills against p
 | D32 Stack-up | The 4-layer default becomes **SIG / GND / GND / SIG** (ADI's preferred option; no signal over a power plane, TI SPRAAR7J §2.4). SIG / GND / PWR / SIG stays as an alternative with a stated reason. Existing boards keep their recorded roles. |
 | D33 Teardrops | Hard on vias and plated-hole pads, soft on SMD pads; off by default for the `DIFF_*` and `RF_*` classes. |
 | D34 Standards | Clearance by voltage takes the larger of IPC-2221C Table 6-1 B2 and A7 (pads are terminations). The current fit is cited as the historical IPC-2221 chart fit, superseded by IPC-2152, one fit for every layer. Vias at 18 µm plating. |
-| D35 Vendor licences | Data derived from TI design files stays in the gitignored `reference/` by default; ST's OPLA allows distribution for ST-based boards. The pendulum's committed TI-derived copper is the owner's decision. |
+| D35 Vendor licences | Data derived from TI design files stays in the gitignored `reference/` by default; ST's OPLA allows distribution for ST-based boards. Board A's committed TI-derived copper is the owner's decision. |
 | D36 Review | Reviewing is a skill of its own (`design-review`): `review.py` runs every scripted check on any KiCad 10 project into one findings file, the schematic checks run on the netlist (board + schematic symbols offline, or KiCad's netlist), and a plugin-level `board-reviewer` agent triages the findings and reviews against the datasheets from the netlist, not from PDF pictures. Review quality is measured by seeding defects into real boards (`evals/review_defects.py`). |
 
 Built from the audit's gaps, in a separate PR: JLCPCB package-pair assembly spacing, edge keep-outs, fiducials and orientation in the placement gate; a footprint-vs-LCSC-package check; BOM lifecycle in `jlc_stock.py`.
@@ -125,7 +125,7 @@ The phases below close them in order. Each ends at a gate the owner signs off, a
 ### Phase B: KiCad 10 validation (Claude prepares, the owner runs on a machine with KiCad 10)
 
 Every script that writes a KiCad file has only been checked by re-parsing its output. A kit
-(`evals/validate_kicad.py`, #14) runs each step on a **copy** of the pendulum, then `kicad-cli` loads, DRCs
+(`evals/validate_kicad.py`, #14) runs each step on a **copy** of board A, then `kicad-cli` loads, DRCs
 and ERCs every result and collects one report. If the owner links this conversation to the computer (Claude
 desktop app, "Add folder"), Claude can run it there.
 
@@ -136,44 +136,44 @@ desktop app, "Add folder"), Claude can run it there.
 | B3 | `netclasses.py apply` | the classes appear in *Board Setup → Net Classes* with the computed widths |
 | B4 | `place.py optimize`, `pins.py assign` | the board opens, parts where the report says; the pin map rebuilds the schematic (`schgen`) |
 | B5 | `schgen.py build / check / equivalence` | ERC clean; `check` passes; byte-identical rebuild |
-| B6 | `refblock.py import` (TI PcbDoc in the pendulum's `reference/`), `extract`, `place` | the import opens; the pasted board opens with the group; DRC shows only the expected vendor findings |
+| B6 | `refblock.py import` (TI PcbDoc in board A's `reference/`), `extract`, `place` | the import opens; the pasted board opens with the group; DRC shows only the expected vendor findings |
 | B7 | `review.py` with `kicad-cli` | the netlist export parses, and its nets equal the board model's; ERC findings parsed |
 | B8 | `export_review / export_jlcpcb / export_release / visual_diff` | packages complete; JLCPCB's viewer accepts Gerbers, BOM and CPL rotations |
-| B9 | Network: `jlc_stock.py` (packages, lifecycle) on the pendulum BOM, `fetch_datasheet.py`, `easyeda2kicad` | real responses parsed; package check: no false mismatch on the pendulum BOM |
+| B9 | Network: `jlc_stock.py` (packages, lifecycle) on board A's BOM, `fetch_datasheet.py`, `easyeda2kicad` | real responses parsed; package check: no false mismatch on board A BOM |
 
 Gate B: every row passes or has an issue filed with the fix; the KiCad version is recorded.
 
-**Status (2026-11-22).** KiCad 10.0.3 on Windows (owner's PC, Python 3.14), e-inverted-pendulum at 49b38c1, then
+**Status (2026-11-22).** KiCad 10.0.3 on Windows (Python 3.14), board A at 49b38c1, then
 51a4bcf / f3e1fbb for C2. B0–B9 all PASS after four fixes the runs found: kicad-cli not reaching the BOM step on a PC
 without it on PATH (#17), SSOP/MSOP/TSSOP compared by name (#17), pins.py refusing a debug pin to the debug function
 (#18), and evidence the kit didn't record (#16). The board findings the kit surfaced (AE801 short, an RF_50 trace
-0.18 mm from a via hole on 49b38c1, gone on 51a4bcf) went to the pendulum (C3). Open: the five checks in the KiCad
+0.18 mm from a via hole on 49b38c1, gone on 51a4bcf) went to board A (C3). Open: the five checks in the KiCad
 window, and B6's Altium import (needs TI's PcbDoc). A1/A2 done (v0.1.0); A3 (repo description) open.
 
-### Phase C: first real user, e-inverted-pendulum (D27)
+### Phase C: first real user, board A (D27)
 
 | # | Item | Owner decision needed |
 |---|---|---|
-| C1 | Replace the pendulum's copied scripts with the plugin's (`scripts/pcb/*`, export scripts) | which copied scripts may go |
-| C2 | Standard net classes on the schematic (`PWR_<I>A`, `GND`, ...), `netclasses.py apply`; `pcb_rules.py apply` with its stack-up recorded | the pendulum's own classes (SUPPLY, PWR_BUS, GATE, SWITCH, CRYSTAL, ...) map to which standard ones |
+| C1 | Replace board A's copied scripts with the plugin's (`scripts/pcb/*`, export scripts) | which copied scripts may go |
+| C2 | Standard net classes on the schematic (`PWR_<I>A`, `GND`, ...), `netclasses.py apply`; `pcb_rules.py apply` with its stack-up recorded | board A's own classes (SUPPLY, PWR_BUS, GATE, SWITCH, CRYSTAL, ...) map to which standard ones |
 | C3 | `review.py` on it; findings triaged into its issue tracker. Known so far: R701 0.68 mm from a QFN, no fiducials, In2.Cu ground in 5 pieces, four 25 V capacitors on the 12.6 V bus | each finding: fix or accepted deviation |
 | C4 | TI-derived `scripts/pcb/boost_drv8711.json` | licence decision (D35): keep committed, or move to `reference/` |
 
-Gate C: the pendulum's CI runs the plugin's gates at a pinned tag; no copied script left that the plugin replaces.
+Gate C: board A's CI runs the plugin's gates at a pinned tag; no copied script left that the plugin replaces.
 
-**Status (2026-11-22).** C2 and C4 merged in the pendulum (embedded-pro/e-inverted-pendulum-hardware#4: D-062 standard
+**Status (2026-11-22).** C2 and C4 merged in board A (its PR 4: D-062 standard
 classes, every multi-pin net classed, DRC unchanged on KiCad 10.0.3; D-063 TI's JSON in `reference/`). C1 and the gate
 in #5: the seven copied scripts are wrappers around the plugin at `v0.1.0`, and a `plugin-gates` CI job runs
 netclasses / pcb_rules (`--no-drc`) / review with ratchet limits at today's counts (D-064); D-065 keeps 0.15 mm on the
 24 V gate nets (A7 can't be met at the DRV8711's 0.2 mm pad gaps). C3: full review of f3e1fbb under way; findings go
-to the pendulum's tracker for the owner's fix-or-accept.
+to board A's tracker for the owner's fix-or-accept.
 
 ### Phase D: measure (paid model runs, run by hand)
 
 | # | Eval | Pass criterion |
 |---|---|---|
-| D1 | Placement: `evals/run.py` on the pendulum case, with and without the plugin, 3 runs each | D25: no worse than the owner's placement +10 % on ratsnest and crossings; then the placement gate's limits are set and it can fail |
-| D2 | Review: `review_defects.py seed` on the pendulum, the board-reviewer agent reviews the seeded copy, `score --report` | recall of the seeded defects at MINOR or above; target to be set from the first run (proposal: ≥ 80 %) and each miss turned into a rule or method fix |
+| D1 | Placement: `evals/run.py` on the board A case, with and without the plugin, 3 runs each | D25: no worse than the owner's placement +10 % on ratsnest and crossings; then the placement gate's limits are set and it can fail |
+| D2 | Review: `review_defects.py seed` on board A, the board-reviewer agent reviews the seeded copy, `score --report` | recall of the seeded defects at MINOR or above; target to be set from the first run (proposal: ≥ 80 %) and each miss turned into a rule or method fix |
 | D3 | Review without the plugin (same seeded board, plain Claude) | the gap D2 − D3 is the plugin's value for review |
 
 Gate D: the numbers are in `docs/` with their dates and costs; the gates' limits come from them.
@@ -189,14 +189,14 @@ owner and KiCad's router. **Owner decision.**
 
 | Item | Note |
 |---|---|
-| e-foc migration branch (D27) | after C proves the path |
-| Gerber-only vendor references | the pendulum's `nfc_reference.py` approach as a tool |
+| Board B migration branch (D27) | after C proves the path |
+| Gerber-only vendor references | board A's `nfc_reference.py` approach as a tool |
 | Back-side land export, mirrored blocks | `reference-block` §6 |
 | Kelvin `SENSE` net-tie check | promised in D9 as "later" |
 | IPC-2221C, IPC-2152, IPC-9592B bought | replace the secondary transcriptions (clearance table, derating) with the standards' own values |
 | KiCad bug report | custom rule overrides the Board Setup minimum (`pcb-design-rules` §4), against the manual |
 | Altium schematics, KiCad < 10 boards in review | `design-review` §6 |
-| e-foc's `Vdrive` voltage | 12 V was an assumption for the review eval |
+| Board B's `Vdrive` voltage | 12 V was an assumption for the review eval |
 
 ### Decisions the owner owns in this plan
 
